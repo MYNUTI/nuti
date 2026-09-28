@@ -67,6 +67,10 @@ public class User {
     @Column(name = "consented_at")
     private LocalDateTime consentedAt;           // 동의 시각
 
+    // 온보딩 완료 시각 (bootstrap 라우팅 분기: 안 함→찍기 화면, 완료→홈). POST /onboarding/complete 에서 기록.
+    @Column(name = "onboarding_completed_at")
+    private LocalDateTime onboardingCompletedAt;
+
     // ── Audit ─────────────────────────────────────────────────────────────────────
 
     @CreatedDate
@@ -111,6 +115,28 @@ public class User {
         this.isActive  = false;
         this.deletedAt = LocalDateTime.now();
         this.oauthId   = "DELETED_" + this.id;  // ✅ 추가: unique 충돌 방지 (재가입 허용)
+    }
+
+    // ── 동의 플래그 (조회용 캐시 — 원장은 consents 테이블) ──────────────────────────
+
+    public void agreePersonalInfo() {
+        this.personalInfoAgreed = true;
+        this.consentedAt = LocalDateTime.now();
+    }
+
+    public void agreeHealthInfo() {
+        this.healthInfoAgreed = true;
+        this.consentedAt = LocalDateTime.now();
+    }
+
+    public void revokeHealthInfo() {
+        this.healthInfoAgreed = false;
+    }
+
+    public void completeOnboarding() {
+        if (this.onboardingCompletedAt == null) {
+            this.onboardingCompletedAt = LocalDateTime.now();
+        }
     }
 
     public void updateRole(String role) {

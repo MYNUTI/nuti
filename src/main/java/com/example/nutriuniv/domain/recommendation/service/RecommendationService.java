@@ -1,6 +1,6 @@
 package com.example.nutriuniv.domain.recommendation.service;
 
-import com.example.nutriuniv.domain.like.repository.UserFavoriteRepository;
+import com.example.nutriuniv.domain.saved.repository.SavedProductRepository;
 import com.example.nutriuniv.domain.pns.service.PnsLookupService;
 import com.example.nutriuniv.domain.product.entity.Product;
 import com.example.nutriuniv.domain.product.repository.ProductRepository;
@@ -39,7 +39,7 @@ public class RecommendationService {
     private final ProductVectorByDietRepository productVectorByDietRepository;
     private final ProductRepository productRepository;
     private final UserNutritionRepository userNutritionRepository;
-    private final UserFavoriteRepository userFavoriteRepository;
+    private final SavedProductRepository savedProductRepository;
     private final PnsLookupService pnsLookupService;
 
     public RecommendationResponse getRecommendations(Long userId) {
@@ -154,7 +154,7 @@ public class RecommendationService {
 
     private Set<Long> getFavoritedIds(Long userId) {
         if (userId == null) return Collections.emptySet();
-        return userFavoriteRepository.findFavoritedProductIdsByUserId(userId);
+        return savedProductRepository.findSavedProductIdsByUserId(userId);
     }
 
     private RecommendationItem toItem(Product p, Set<Long> favoritedIds, Double score, String grade) {
