@@ -4,9 +4,12 @@ import com.example.nutriuniv.common.security.Owner;
 import com.example.nutriuniv.domain.goal.entity.GoalType;
 import com.example.nutriuniv.domain.goal.entity.UserGoal;
 import com.example.nutriuniv.domain.goal.repository.UserGoalRepository;
+import com.example.nutriuniv.domain.grade.calc.Calibration;
 import com.example.nutriuniv.domain.grade.calc.EerBand;
+import com.example.nutriuniv.domain.grade.calc.GradeFormula;
 import com.example.nutriuniv.domain.grade.entity.ProductGrade;
 import com.example.nutriuniv.domain.grade.repository.ProductGradeRepository;
+import com.example.nutriuniv.domain.product.entity.ProductNutrient;
 import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -88,6 +91,36 @@ public class GradeLookupService {
             result.put(g.getProductId(), g.getGrade().name());
         }
         return result;
+    }
+
+    /**
+     * 사전계산이 아직 없을 때(적재 직후·배치 전) 현행 기준으로 즉석 계산 — 「분석 완료인데 등급 없음」을 만들지 않는다.
+     * 백분위는 전체 분포가 필요하므로 null. 저장하지 않는다(다음 배치가 채운다).
+     */
+    public GradeView computeOnTheFly(ProductNutrient nutrient, GoalType goal) {
+        Calibration cal = calibrationService.current();
+        GradeFormula.Result r = GradeFormula.evaluate(cal, goal, EerBand.defaultSlot(goal), toInput(nutrient));
+        return new GradeView(
+                BigDecimal.valueOf(r.score()).setScale(1, RoundingMode.HALF_UP),
+                r.grade().name(),
+                calibrationService.label(goal, r.grade()),
+                null,
+                null,
+                r.topPenaltyNutrient() == null ? null : r.topPenaltyNutrient().name(),
+                EerBand.DEFAULT.kcal(),
+                goal
+        );
+    }
+
+    /** 100g 기준 8종 → 산식 입력. 식이섬유가 없으면 0 (4.1). 판정 7종 결측은 호출자가 ProductStatus 로 먼저 걸러야 한다. */
+    public static GradeFormula.Input toInput(ProductNutrient n) {
+        return new GradeFormula.Input(
+                num(n.getCaloriesPer100g()), num(n.getProteinPer100g()), num(n.getFiberPer100g()), num(n.getSugarPer100g()),
+                num(n.getSaturatedFatPer100g()), num(n.getTransFatPer100g()), num(n.getCholesterolPer100g()), num(n.getSodiumPer100g()));
+    }
+
+    private static double num(BigDecimal v) {
+        return v == null ? 0.0 : v.doubleValue();
     }
 
     /** 등급 라벨 — 현행 기준의 grade_cutoffs.label. grade 가 null 이면 null. */
