@@ -1,7 +1,8 @@
 package com.example.nutriuniv.domain.recommendation.service;
 
 import com.example.nutriuniv.domain.saved.repository.SavedProductRepository;
-import com.example.nutriuniv.domain.pns.service.PnsLookupService;
+import com.example.nutriuniv.domain.goal.entity.GoalType;
+import com.example.nutriuniv.domain.grade.service.GradeLookupService;
 import com.example.nutriuniv.domain.product.entity.Product;
 import com.example.nutriuniv.domain.product.repository.ProductRepository;
 import com.example.nutriuniv.domain.recommendation.dto.RecommendationResponse;
@@ -40,17 +41,16 @@ public class RecommendationService {
     private final ProductRepository productRepository;
     private final UserNutritionRepository userNutritionRepository;
     private final SavedProductRepository savedProductRepository;
-    private final PnsLookupService pnsLookupService;
+    private final GradeLookupService gradeLookupService;
 
     public RecommendationResponse getRecommendations(Long userId) {
-        int eerBand = pnsLookupService.resolveEerBand(userId);
-        String goal = pnsLookupService.resolveGoal(userId);
+        GoalType goal = gradeLookupService.resolveGoalType(userId);   // 열량구간은 1·2차 2000 고정 — 목표만 넘긴다
 
         // 1단계: CF — recommendation_cache에 결과가 있으면 반환
         List<RecommendationCache> cfCache = recommendationCacheRepository
                 .findByUserIdOrderByScoreDesc(userId);
         if (!cfCache.isEmpty()) {
-            return buildCfResponse(cfCache, userId, eerBand, goal);
+            return buildCfResponse(cfCache, userId, goal);
         }
 
         // 2단계: 콘텐츠 기반 — diet_purpose로 영양소 벡터 유사도 추천
@@ -61,12 +61,12 @@ public class RecommendationService {
             List<Long> productIds = productVectorByDietRepository
                     .findTopProductIdsByDietPurpose(dietPurpose, targetVector, DEFAULT_LIMIT);
             if (!productIds.isEmpty()) {
-                return buildContentResponse(productIds, userId, eerBand, goal);
+                return buildContentResponse(productIds, userId, goal);
             }
         }
 
         // 3단계: 인기순 폴백
-        return buildPopularResponse(userId, eerBand, goal);
+        return buildPopularResponse(userId, goal);
     }
 
     /**
@@ -80,7 +80,7 @@ public class RecommendationService {
     // ── CF 응답 ───────────────────────────────────────────────────────────────────
 
     private RecommendationResponse buildCfResponse(List<RecommendationCache> cfCache,
-                                                   Long userId, int eerBand, String goal) {
+                                                   Long userId, GoalType goal) {
         Map<Long, Double> scoreByProductId = cfCache.stream()
                 .collect(Collectors.toMap(
                         RecommendationCache::getProductId,
@@ -93,7 +93,7 @@ public class RecommendationService {
 
         List<Product> products = productRepository.findByIdInAndIsActiveTrue(productIds);
         Set<Long> favoritedIds = getFavoritedIds(userId);
-        Map<Long, String> gradeMap = pnsLookupService.lookupGrades(productIds, eerBand, goal);
+        Map<Long, String> gradeMap = gradeLookupService.lookupGrades(productIds, goal);
 
         Map<Long, Product> productMap = products.stream()
                 .collect(Collectors.toMap(Product::getId, p -> p));
@@ -112,10 +112,10 @@ public class RecommendationService {
     // ── 콘텐츠 기반 응답 ──────────────────────────────────────────────────────────
 
     private RecommendationResponse buildContentResponse(List<Long> productIds,
-                                                        Long userId, int eerBand, String goal) {
+                                                        Long userId, GoalType goal) {
         List<Product> products = productRepository.findByIdInAndIsActiveTrue(productIds);
         Set<Long> favoritedIds = getFavoritedIds(userId);
-        Map<Long, String> gradeMap = pnsLookupService.lookupGrades(productIds, eerBand, goal);
+        Map<Long, String> gradeMap = gradeLookupService.lookupGrades(productIds, goal);
 
         Map<Long, Product> productMap = products.stream()
                 .collect(Collectors.toMap(Product::getId, p -> p));
@@ -133,12 +133,12 @@ public class RecommendationService {
 
     // ── 인기순 폴백 응답 ──────────────────────────────────────────────────────────
 
-    private RecommendationResponse buildPopularResponse(Long userId, int eerBand, String goal) {
+    private RecommendationResponse buildPopularResponse(Long userId, GoalType goal) {
         List<Product> products = productRepository
                 .findTopByIsActiveTrueOrderByViewCountDesc(PageRequest.of(0, DEFAULT_LIMIT));
         Set<Long> favoritedIds = getFavoritedIds(userId);
         List<Long> productIds = products.stream().map(Product::getId).collect(Collectors.toList());
-        Map<Long, String> gradeMap = pnsLookupService.lookupGrades(productIds, eerBand, goal);
+        Map<Long, String> gradeMap = gradeLookupService.lookupGrades(productIds, goal);
 
         List<RecommendationItem> items = products.stream()
                 .map(p -> toItem(p, favoritedIds, null, gradeMap.get(p.getId())))
