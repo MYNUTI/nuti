@@ -37,6 +37,10 @@ public interface SavedProductRepository extends JpaRepository<SavedProduct, Long
     @Query("SELECT s.product.id FROM SavedProduct s WHERE s.userId = :userId")
     Set<Long> findSavedProductIdsByUserId(@Param("userId") Long userId);
 
+    // 검색 결과 isSaved 일괄 체크용 — 익명 소유
+    @Query("SELECT s.product.id FROM SavedProduct s WHERE s.anonymousId = :anonymousId")
+    Set<Long> findSavedProductIdsByAnonymousId(@Param("anonymousId") String anonymousId);
+
     // 로그인 병합(7.2)용 — 익명 소유 전체
     List<SavedProduct> findByAnonymousId(String anonymousId);
 }
