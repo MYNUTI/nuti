@@ -6,7 +6,7 @@ import com.example.nutriuniv.domain.brand.entity.Brand;
 import com.example.nutriuniv.domain.brand.repository.BrandRepository;
 import com.example.nutriuniv.domain.category.entity.Category;
 import com.example.nutriuniv.domain.category.repository.CategoryRepository;
-import com.example.nutriuniv.domain.like.repository.UserFavoriteRepository;
+import com.example.nutriuniv.domain.saved.repository.SavedProductRepository;
 import com.example.nutriuniv.domain.coupang.entity.CoupangLink;
 import com.example.nutriuniv.domain.coupang.repository.CoupangLinkRepository;
 import com.example.nutriuniv.domain.pns.service.PnsLookupService;
@@ -50,7 +50,7 @@ public class ProductService {
     private final ProductNutrientRepository productNutrientRepository;
     private final BrandRepository brandRepository;
     private final CategoryRepository categoryRepository;
-    private final UserFavoriteRepository userFavoriteRepository;
+    private final SavedProductRepository savedProductRepository;
     private final EntityManager entityManager;
     private final CoupangLinkRepository coupangLinkRepository;
     private final PnsLookupService pnsLookupService;
@@ -808,7 +808,7 @@ public class ProductService {
 
     private ProductListResponse toListResponse(Product product, Long userId, String grade, Integer price) {
         boolean favorited = userId != null &&
-                userFavoriteRepository.existsByUserIdAndProductIdAndProductIsActiveTrue(userId, product.getId());
+                savedProductRepository.existsByUserIdAndProductIdAndProductIsActiveTrue(userId, product.getId());
 
         return ProductListResponse.builder()
                 .id(product.getId())
@@ -834,7 +834,7 @@ public class ProductService {
                                                    ProductDetailResponse.PnsInfo pnsInfo,
                                                    ProductDetailResponse.NutrientBounds nutrientBounds) {
         boolean favorited = userId != null &&
-                userFavoriteRepository.existsByUserIdAndProductIdAndProductIsActiveTrue(userId, product.getId());
+                savedProductRepository.existsByUserIdAndProductIdAndProductIsActiveTrue(userId, product.getId());
 
         return ProductDetailResponse.builder()
                 .id(product.getId())
