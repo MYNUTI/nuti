@@ -1,5 +1,7 @@
 package com.example.nutriuniv.domain.product.controller;
 
+import com.example.nutriuniv.common.exception.CustomException;
+import com.example.nutriuniv.common.exception.ErrorCode;
 import com.example.nutriuniv.common.response.CommonResponse;
 import com.example.nutriuniv.common.security.UserPrincipal;
 import com.example.nutriuniv.domain.product.dto.*;
@@ -83,11 +85,21 @@ public class ProductController {
         return ResponseEntity.ok(CommonResponse.success(productExcelService.upload(file)));
     }
 
-    // DELETE /admin/products/reset
+    // DELETE /admin/products/reset?confirm=RESET_ALL_DATA
+    // products TRUNCATE CASCADE → 참조 테이블(pns·벡터·로그) 전부 소실. 실수 호출(Swagger 원클릭 등) 방지용 확인 문구 필수.
+    private static final String RESET_CONFIRM_PHRASE = "RESET_ALL_DATA";
+
     @Operation(summary = "전체 초기화",
-            description = "상품, 영양정보, 브랜드, 카테고리, 리뷰, 찜을 모두 삭제하고 시퀀스(id)를 1로 리셋합니다.")
+            description = "상품, 영양정보, 브랜드, 카테고리, 리뷰, 찜을 모두 삭제하고 시퀀스(id)를 1로 리셋합니다. " +
+                    "복구 불가. confirm 파라미터에 'RESET_ALL_DATA'를 정확히 넣어야 실행됩니다.")
     @DeleteMapping("/admin/products/reset")
-    public ResponseEntity<CommonResponse<Void>> resetAll() {
+    public ResponseEntity<CommonResponse<Void>> resetAll(
+            @Parameter(description = "확인 문구 (RESET_ALL_DATA)") @RequestParam(required = false) String confirm) {
+
+        if (!RESET_CONFIRM_PHRASE.equals(confirm)) {
+            throw new CustomException(ErrorCode.BAD_REQUEST,
+                    "전체 초기화는 confirm=" + RESET_CONFIRM_PHRASE + " 파라미터가 필요합니다.");
+        }
         productService.resetAll();
         return ResponseEntity.ok(CommonResponse.success(null));
     }
