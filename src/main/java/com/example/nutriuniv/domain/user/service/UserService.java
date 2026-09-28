@@ -30,15 +30,14 @@ public class UserService {
 
     // ── PATCH /users/me ───────────────────────────────────────────────────────────
 
+    /** 수정 가능한 프로필은 이메일·닉네임만 (name·gender·birthDate 는 2차부터 미수집). */
     @Transactional
     public UserResponse updateMe(Long userId, UserUpdateRequest request) {
-        if (request.getName() == null && request.getEmail() == null && request.getNickname() == null
-                && request.getGender() == null && request.getBirthDate() == null) {
+        if (request.getEmail() == null && request.getNickname() == null) {
             throw new CustomException(ErrorCode.BAD_REQUEST, "수정할 항목이 없습니다.");
         }
         User user = getUser(userId);
-        user.update(request.getName(), request.getEmail(), request.getNickname(),
-                request.getGender(), request.getBirthDate());
+        user.updateProfile(request.getEmail(), request.getNickname());
         return UserResponse.from(user);
     }
 

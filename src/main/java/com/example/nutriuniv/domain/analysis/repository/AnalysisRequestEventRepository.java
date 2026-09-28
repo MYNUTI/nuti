@@ -3,10 +3,18 @@ package com.example.nutriuniv.domain.analysis.repository;
 import com.example.nutriuniv.domain.analysis.entity.AnalysisRequestChannel;
 import com.example.nutriuniv.domain.analysis.entity.AnalysisRequestEvent;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
 
 public interface AnalysisRequestEventRepository extends JpaRepository<AnalysisRequestEvent, Long> {
+
+    /** 로그인 병합(7.2) — 익명 소유 접수 기록을 계정으로. 옮긴 행 수를 돌려준다. */
+    @Modifying(clearAutomatically = true)
+    @Query("UPDATE AnalysisRequestEvent e SET e.userId = :userId, e.anonymousId = null WHERE e.anonymousId = :anonymousId")
+    int transferToUser(@Param("anonymousId") String anonymousId, @Param("userId") Long userId);
 
     long countByChannelAndUserIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(
             AnalysisRequestChannel channel, Long userId, LocalDateTime from, LocalDateTime to);

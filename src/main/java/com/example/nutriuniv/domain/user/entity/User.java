@@ -9,12 +9,19 @@ import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
+/**
+ * 회원. 2차부터 소셜 로그인 즉시 가입(등록 단계 폐지)이라 <b>이메일 외 프로필은 수집하지 않는다</b> — name·gender·birthDate 는 nullable
+ * (기존 컬럼의 NOT NULL 해제는 db/manual/05_auth_merge.sql, Hibernate 가 못 함). 1차 회원의 기존 값은 그대로 둔다.
+ * 닉네임은 서버가 「사용자{id}」로 정하고 사용자가 바꿀 수 있다.
+ */
 @Entity
 @Table(name = "users")
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @EntityListeners(AuditingEntityListener.class)
 public class User {
+
+    public static final String DEFAULT_NICKNAME_PREFIX = "사용자";
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -32,16 +39,18 @@ public class User {
     @Column(length = 20)
     private String phone;
 
-    @Column(nullable = false, length = 50)
+    // ── 프로필 (2차부터 미수집 — 1차 회원 값만 남아 있다) ────────────────────────────
+
+    @Column(length = 50)
     private String name;
 
     @Column(nullable = false, length = 50)
     private String nickname;
 
-    @Column(nullable = false, length = 10)
+    @Column(length = 10)
     private String gender;
 
-    @Column(name = "birth_date", nullable = false)
+    @Column(name = "birth_date")
     private LocalDate birthDate;
 
     @Column(nullable = false, length = 10)
@@ -62,7 +71,7 @@ public class User {
     private boolean healthInfoAgreed = false;    // ② 건강정보 수집·이용 동의 (선택)
 
     @Column(name = "age_confirmed", nullable = false)
-    private boolean ageConfirmed = false;        // ③ 만 14세 이상 확인 (필수)
+    private boolean ageConfirmed = false;        // ③ 만 14세 이상 확인 (필수) — 2차는 동의 항목 AGE_OVER_14 로 받는다
 
     @Column(name = "consented_at")
     private LocalDateTime consentedAt;           // 동의 시각
@@ -83,38 +92,38 @@ public class User {
 
     // ── 생성 ─────────────────────────────────────────────────────────────────────
 
-    public static User create(String oauthProvider, String oauthId,
-                              String name, String gender, LocalDate birthDate, String email,
-                              boolean personalInfoAgreed, boolean healthInfoAgreed, boolean ageConfirmed) {
+    /**
+     * 소셜 로그인 즉시 가입 (API 명세 /auth/oauth 「신규회원도 즉시 가입+토큰」). 이메일 외 프로필은 받지 않는다.
+     * 저장 뒤 {@link #assignDefaultNickname()} 로 닉네임을 확정한다(id 가 필요).
+     */
+    public static User register(String oauthProvider, String oauthId, String email) {
         User u = new User();
-        u.oauthProvider      = oauthProvider;
-        u.oauthId            = oauthId;
-        u.name               = name;
-        u.nickname           = name;  // 가입 시 name으로 자동 설정
-        u.gender             = gender;
-        u.birthDate          = birthDate;
-        u.email              = email;
-        u.personalInfoAgreed = personalInfoAgreed;
-        u.healthInfoAgreed   = healthInfoAgreed;
-        u.ageConfirmed       = ageConfirmed;
-        u.consentedAt        = LocalDateTime.now();
+        u.oauthProvider = oauthProvider;
+        u.oauthId       = oauthId;
+        u.email         = email;
+        u.nickname      = DEFAULT_NICKNAME_PREFIX;   // 임시 — id 발급 후 「사용자{id}」
         return u;
+    }
+
+    /** 「사용자{id}」. 이미 다른 닉네임이면 건드리지 않는다. */
+    public void assignDefaultNickname() {
+        if (this.id != null && DEFAULT_NICKNAME_PREFIX.equals(this.nickname)) {
+            this.nickname = DEFAULT_NICKNAME_PREFIX + this.id;
+        }
     }
 
     // ── 수정 ─────────────────────────────────────────────────────────────────────
 
-    public void update(String name, String email, String nickname, String gender, LocalDate birthDate) {
-        if (name != null)      this.name      = name;
-        if (email != null)     this.email     = email;
-        if (nickname != null)  this.nickname  = nickname;
-        if (gender != null)    this.gender    = gender;
-        if (birthDate != null) this.birthDate = birthDate;
+    /** PATCH /users/me — 수정 가능한 프로필은 이메일·닉네임만 (name·gender·birthDate 는 미수집). */
+    public void updateProfile(String email, String nickname) {
+        if (email != null)    this.email    = email;
+        if (nickname != null) this.nickname = nickname;
     }
 
     public void deactivate() {
         this.isActive  = false;
         this.deletedAt = LocalDateTime.now();
-        this.oauthId   = "DELETED_" + this.id;  // ✅ 추가: unique 충돌 방지 (재가입 허용)
+        this.oauthId   = "DELETED_" + this.id;  // unique 충돌 방지 (재가입 허용)
     }
 
     // ── 동의 플래그 (조회용 캐시 — 원장은 consents 테이블) ──────────────────────────
