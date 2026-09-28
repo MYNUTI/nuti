@@ -7,14 +7,17 @@ import com.example.nutriuniv.domain.logging.dto.FilterLogRequest;
 import com.example.nutriuniv.domain.logging.dto.ImpressionLogRequest;
 import com.example.nutriuniv.domain.logging.dto.LogContext;
 import com.example.nutriuniv.domain.logging.dto.SearchLogRequest;
+import com.example.nutriuniv.domain.logging.dto.OnboardingStepLogRequest;
 import com.example.nutriuniv.domain.logging.dto.ScanEventLogRequest;
 import com.example.nutriuniv.domain.logging.dto.ViewLogRequest;
+import com.example.nutriuniv.domain.logging.entity.OnboardingStepLog;
 import com.example.nutriuniv.domain.logging.entity.ProductCtaLog;
 import com.example.nutriuniv.domain.logging.entity.ProductFilterLog;
 import com.example.nutriuniv.domain.logging.entity.ProductViewLog;
 import com.example.nutriuniv.domain.logging.entity.ScanEventLog;
 import com.example.nutriuniv.domain.logging.entity.ScanEventResult;
 import com.example.nutriuniv.domain.logging.entity.SearchLog;
+import com.example.nutriuniv.domain.logging.repository.OnboardingStepLogRepository;
 import com.example.nutriuniv.domain.logging.repository.ProductCtaLogRepository;
 import com.example.nutriuniv.domain.logging.repository.ProductFilterLogRepository;
 import com.example.nutriuniv.domain.logging.repository.ProductViewLogRepository;
@@ -46,6 +49,7 @@ public class LoggingService {
     private final SearchLogRepository searchLogRepository;
     private final ProductFilterLogRepository productFilterLogRepository;
     private final ScanEventLogRepository scanEventLogRepository;
+    private final OnboardingStepLogRepository onboardingStepLogRepository;
     private final ProductRepository productRepository;
     private final VisitTrackingService visitTrackingService;
     private final EntityManager em;
@@ -171,6 +175,21 @@ public class LoggingService {
 
     private static String truncate(String s, int max) {
         return s.length() <= max ? s : s.substring(0, max);
+    }
+
+    // ── POST /logging/onboarding-step (온보딩 단계 이벤트) ────────────────────────────
+
+    /** 허용값 외 400, 저장 실패는 200. 유효 방문·세션 추적과 무관(3회 이탈 카운트는 클라 localStorage). */
+    @Transactional
+    public void logOnboardingStep(OnboardingStepLogRequest request, LogContext ctx) {
+        String step = request.normalizedStep();
+        String action = request.normalizedAction();
+        String reason = request.normalizedReason();
+        try {
+            onboardingStepLogRepository.save(OnboardingStepLog.create(ctx, step, action, reason));
+        } catch (Exception e) {
+            log.error("[OnboardingStepLog] 로그 저장 실패 - step: {}, action: {}, error: {}", step, action, e.getMessage());
+        }
     }
 
     // ── POST /logging/impression (상품 노출, 음성 샘플용) ──────────────────────────
