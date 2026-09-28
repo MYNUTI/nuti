@@ -11,6 +11,8 @@ import com.example.nutriuniv.domain.consent.repository.AnonymousUserRepository;
 import com.example.nutriuniv.domain.consent.repository.ConsentRepository;
 import com.example.nutriuniv.domain.goal.entity.UserGoal;
 import com.example.nutriuniv.domain.goal.repository.UserGoalRepository;
+import com.example.nutriuniv.domain.me.entity.UserSetting;
+import com.example.nutriuniv.domain.me.repository.UserSettingRepository;
 import com.example.nutriuniv.domain.saved.entity.SavedProduct;
 import com.example.nutriuniv.domain.saved.repository.SavedProductRepository;
 import com.example.nutriuniv.domain.user.entity.User;
@@ -43,6 +45,7 @@ public class AnonymousMergeService {
     private final UserGoalRepository userGoalRepository;
     private final ConsentRepository consentRepository;
     private final AnalysisRequestEventRepository analysisRequestEventRepository;
+    private final UserSettingRepository userSettingRepository;
 
     public record MergeResult(int savedProducts, int goals, int contributions, int consents) {
         public static final MergeResult NONE = new MergeResult(0, 0, 0, 0);
@@ -99,6 +102,16 @@ public class AnonymousMergeService {
         // 5) 온보딩 완료 상태
         if (anon.getOnboardingCompletedAt() != null) {
             user.completeOnboarding();
+        }
+
+        // 6) 설정 — 계정에 설정이 없을 때만 이관 (건수 제외)
+        Optional<UserSetting> anonSetting = userSettingRepository.findByAnonymousId(anonId);
+        if (anonSetting.isPresent()) {
+            if (userSettingRepository.findByUserId(userId).isPresent()) {
+                userSettingRepository.delete(anonSetting.get());
+            } else {
+                anonSetting.get().transferTo(userId);
+            }
         }
 
         anon.markMerged(userId);
