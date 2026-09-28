@@ -61,17 +61,9 @@ public class GoalService {
     public GoalUpdateResponse setGoal(Actor actor, GoalUpdateRequest request) {
         Owner owner = ownerResolver.resolve(actor);                 // 동의 전 → 403 CONSENT_REQUIRED
         GoalType goal = GoalType.from(request.getGoal());          // 허용값 외 → 400
-        if (goal.requiresHealthConsent() && !isHealthConsented(owner)) {
-            throw new CustomException(ErrorCode.HEALTH_CONSENT_REQUIRED);   // 일반 거부(403 FORBIDDEN)와 구분
-        }
 
-        UserGoal ug = find(owner).orElse(null);
-        GoalType before = ug == null ? GoalType.GENERAL : ug.getGoal();
-        if (ug == null) {
-            ug = userGoalRepository.save(UserGoal.create(owner, goal));
-        } else {
-            ug.change(goal);
-        }
+        GoalType before = find(owner).map(UserGoal::getGoal).orElse(GoalType.GENERAL);
+        UserGoal ug = changeGoal(owner, goal);
 
         GoalUpdateResponse.Recalculation recalculation =
                 request.getRecalcProductId() == null ? null : recalculate(request.getRecalcProductId(), before, goal);
@@ -82,6 +74,23 @@ public class GoalService {
                 .appliedAt(ug.getAppliedAt())
                 .recalculation(recalculation)
                 .build();
+    }
+
+    /**
+     * 목표 저장 (설정 화면 PATCH /me/settings 도 이걸 쓴다 — 재계산 응답 없음).
+     * 감량·근육증가는 건강정보 동의(1.3)가 먼저 — 미동의면 403 HEALTH_CONSENT_REQUIRED(일반 거부와 구분).
+     */
+    @Transactional
+    public UserGoal changeGoal(Owner owner, GoalType goal) {
+        if (goal.requiresHealthConsent() && !isHealthConsented(owner)) {
+            throw new CustomException(ErrorCode.HEALTH_CONSENT_REQUIRED);
+        }
+        UserGoal ug = find(owner).orElse(null);
+        if (ug == null) {
+            return userGoalRepository.save(UserGoal.create(owner, goal));
+        }
+        ug.change(goal);
+        return ug;
     }
 
     /** 건강정보 동의 철회 시 감량·근육증가 목표를 GENERAL 로 되돌린다 (ConsentService 에서 호출). */

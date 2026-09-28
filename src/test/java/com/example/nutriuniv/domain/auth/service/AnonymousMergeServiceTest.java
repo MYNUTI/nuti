@@ -10,6 +10,7 @@ import com.example.nutriuniv.domain.consent.repository.ConsentRepository;
 import com.example.nutriuniv.domain.goal.entity.GoalType;
 import com.example.nutriuniv.domain.goal.entity.UserGoal;
 import com.example.nutriuniv.domain.goal.repository.UserGoalRepository;
+import com.example.nutriuniv.domain.me.repository.UserSettingRepository;
 import com.example.nutriuniv.domain.product.entity.Product;
 import com.example.nutriuniv.domain.saved.entity.SavedProduct;
 import com.example.nutriuniv.domain.saved.repository.SavedProductRepository;
@@ -40,6 +41,7 @@ class AnonymousMergeServiceTest {
     @Mock UserGoalRepository userGoalRepository;
     @Mock ConsentRepository consentRepository;
     @Mock AnalysisRequestEventRepository analysisRequestEventRepository;
+    @Mock UserSettingRepository userSettingRepository;
 
     @InjectMocks AnonymousMergeService service;
 

@@ -8,6 +8,7 @@ import com.example.nutriuniv.domain.consent.repository.AnonymousUserRepository;
 import com.example.nutriuniv.domain.consent.service.ConsentService;
 import com.example.nutriuniv.domain.consent.service.OwnerResolver;
 import com.example.nutriuniv.domain.goal.service.GoalService;
+import com.example.nutriuniv.domain.me.service.UserSettingService;
 import com.example.nutriuniv.domain.user.entity.User;
 import com.example.nutriuniv.domain.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -28,6 +29,7 @@ public class BootstrapService {
     private final GoalService goalService;
     private final UserRepository userRepository;
     private final AnonymousUserRepository anonymousUserRepository;
+    private final UserSettingService userSettingService;
 
     @Transactional(readOnly = true)
     public BootstrapResponse bootstrap(Actor actor) {
@@ -39,8 +41,7 @@ public class BootstrapService {
                 .healthConsented(owner != null && consentService.isHealthConsented(owner))
                 .onboardingCompleted(owner != null && onboardingCompleted(owner))
                 .goal(goalService.currentGoal(owner).name())
-                // 설정(user_settings)은 마이/설정 브랜치에서 도입 — 그때까지 기본값 ON
-                .clipboardLinkDetection(true)
+                .clipboardLinkDetection(userSettingService.clipboardLinkDetection(owner))   // user_settings, 없으면 ON
                 .currentPolicyVersion(consentService.currentPolicyVersion())
                 .build();
     }
