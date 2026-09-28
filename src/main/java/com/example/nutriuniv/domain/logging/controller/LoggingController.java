@@ -6,6 +6,7 @@ import com.example.nutriuniv.domain.logging.dto.CtaLogRequest;
 import com.example.nutriuniv.domain.logging.dto.FilterLogRequest;
 import com.example.nutriuniv.domain.logging.dto.ImpressionLogRequest;
 import com.example.nutriuniv.domain.logging.dto.LogContext;
+import com.example.nutriuniv.domain.logging.dto.ScanEventLogRequest;
 import com.example.nutriuniv.domain.logging.dto.SearchLogRequest;
 import com.example.nutriuniv.domain.logging.dto.ViewLogRequest;
 import com.example.nutriuniv.domain.logging.service.LoggingService;
@@ -79,6 +80,17 @@ public class LoggingController {
     @PostMapping("/logging/impression")
     public ResponseEntity<CommonResponse<Void>> logImpression(Actor actor, @RequestBody ImpressionLogRequest request) {
         loggingService.logImpressions(request, LogContext.from(actor));
+        return ResponseEntity.ok(CommonResponse.success(null));
+    }
+
+    // POST /logging/scan-event
+    @Operation(summary = "스캔 실패 이벤트 기록 (기능명세서 9.1 신규)",
+            description = "result: SCAN_FAIL(인식 실패) | NOT_IN_DATA(인식됐는데 데이터에 없음) | CHECKSUM_FAIL | PERMISSION_DENIED — " +
+                    "원인별로 분리 적재합니다. barcode 는 NOT_IN_DATA·CHECKSUM_FAIL 일 때만 저장, surface 는 화면 식별자(선택). " +
+                    "fire-and-forget: 저장 실패해도 200. 허용값 외 result 는 400. 유효 방문으로 집계되지 않습니다.")
+    @PostMapping("/logging/scan-event")
+    public ResponseEntity<CommonResponse<Void>> logScanEvent(Actor actor, @RequestBody ScanEventLogRequest request) {
+        loggingService.logScanEvent(request, LogContext.from(actor));
         return ResponseEntity.ok(CommonResponse.success(null));
     }
 }

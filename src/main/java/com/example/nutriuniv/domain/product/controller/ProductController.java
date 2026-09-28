@@ -3,9 +3,11 @@ package com.example.nutriuniv.domain.product.controller;
 import com.example.nutriuniv.common.exception.CustomException;
 import com.example.nutriuniv.common.exception.ErrorCode;
 import com.example.nutriuniv.common.response.CommonResponse;
+import com.example.nutriuniv.common.security.Actor;
 import com.example.nutriuniv.common.security.UserPrincipal;
 import com.example.nutriuniv.domain.product.dto.*;
 import com.example.nutriuniv.domain.product.service.ProductExcelService;
+import com.example.nutriuniv.domain.product.service.ProductResultService;
 import com.example.nutriuniv.domain.product.service.ProductService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -26,6 +28,7 @@ public class ProductController {
 
     private final ProductService productService;
     private final ProductExcelService productExcelService;
+    private final ProductResultService productResultService;
 
     // GET /products/nutrient-claims
     @Operation(summary = "영양 강조표시 필터 목록 조회",
@@ -51,17 +54,30 @@ public class ProductController {
         return ResponseEntity.ok(CommonResponse.success(productService.getProducts(request, userId)));
     }
 
+    // GET /products/barcode/{barcode}
+    @Operation(summary = "바코드 스캔 조회 (기능명세서 3.1·3.2)",
+            description = "8·12·13·14자리를 13자리로 정규화해 조회합니다. 체크섬 불일치 400 BARCODE_CHECKSUM_INVALID(조회 안 함, 기록). " +
+                    "데이터에 없으면 404 PRODUCT_NOT_FOUND + 대기 목록(NEW_PRODUCT) 자동 등록(같은 바코드 횟수 +1) — 인식 실패와 다른 화면. " +
+                    "영양정보 부족이면 200 + status=INSUFFICIENT(grade·topReason 없음) + 대기 목록(NUTRITION_FILL) 등록. " +
+                    "X-Anonymous-Id·토큰 선택 — 목표 미설정 시 일반 기준.")
+    @GetMapping("/products/barcode/{barcode}")
+    public ResponseEntity<CommonResponse<BarcodeScanResponse>> scanBarcode(
+            Actor actor,
+            @Parameter(description = "바코드 (숫자 8·12·13·14자리)") @PathVariable String barcode) {
+        return ResponseEntity.ok(CommonResponse.success(productResultService.scan(barcode, actor)));
+    }
+
     // GET /products/{productId}
-    @Operation(summary = "상품 상세 조회",
-            description = "상품 ID로 상세 정보를 조회합니다. 조회 시 view_count가 1 증가합니다. " +
-                    "로그인 시 찜 여부(isFavorited)가 반영됩니다.")
+    @Operation(summary = "제품 결과 화면 (기능명세서 2.3·5.1)",
+            description = "status·product·nutrition·grade·topReason·appliedGoal·saved 블록으로 결과 화면을 한 번에 그립니다. 조회수 +1. " +
+                    "영양정보 부족이면 status=INSUFFICIENT 로 제품명·이미지만(등급 없음) + 대기 목록(NUTRITION_FILL) 등록(404 아님). " +
+                    "없는·비활성 제품 404 PRODUCT_NOT_FOUND. X-Anonymous-Id·토큰 선택 — saved·appliedGoal 이 소유자 기준으로 반영됩니다. " +
+                    "1차 웹이 쓰던 필드(id·name·nutrients·coupang·pns·nutrientBounds 등)는 전환 기간 동안 함께 내려갑니다.")
     @GetMapping("/products/{productId}")
     public ResponseEntity<CommonResponse<ProductDetailResponse>> getProduct(
-            @AuthenticationPrincipal UserPrincipal principal,
+            Actor actor,
             @Parameter(description = "상품 ID") @PathVariable Long productId) {
-
-        Long userId = principal != null ? principal.getId() : null;
-        return ResponseEntity.ok(CommonResponse.success(productService.getProduct(productId, userId)));
+        return ResponseEntity.ok(CommonResponse.success(productService.getProduct(productId, actor)));
     }
 
     // GET /admin/products

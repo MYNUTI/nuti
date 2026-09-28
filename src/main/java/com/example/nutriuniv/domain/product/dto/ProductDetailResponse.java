@@ -1,28 +1,52 @@
 package com.example.nutriuniv.domain.product.dto;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.Builder;
 import lombok.Getter;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
+/**
+ * GET /products/{productId} 출력 — 제품 결과 화면 (기능명세서 2.3·5.1 공용, API 명세 「기존 수정」).
+ * <p>명세 블록: status · product · nutrition · grade · topReason · appliedGoal · saved.
+ * 그 아래 1차 웹이 쓰던 필드들은 화면 전환이 끝날 때까지 유지한다(deprecated). 이름이 겹치는 {@code grade} 만 명세대로 객체로 바뀌었다.
+ */
 @Getter
 @Builder
 public class ProductDetailResponse {
+
+    // ── 2차 결과 화면 (API 명세) ──────────────────────────────────────────────────
+
+    private String status;                  // ANALYZED | INSUFFICIENT
+    private ProductSummary product;
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private NutritionFacts nutrition;       // 영양정보 행이 없으면 null, 있으면 값 8종(식이섬유 null 가능)
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private GradeBadge grade;               // INSUFFICIENT 이면 없음. (1차의 문자열 grade 를 대체)
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private String topReason;               // 감점 요인 1개, 완성 문장
+
+    private String appliedGoal;             // GENERAL | WEIGHT_LOSS | MUSCLE_GAIN
+    private boolean saved;                  // 소유자(로그인·익명) 기준 저장 여부
+
+    // ── 1차 웹 호환 (deprecated — 2차 화면 전환 후 제거) ──────────────────────────
 
     private Long id;
     private String name;
     private String imageUrl;
     private BigDecimal nutritionScore;
-    private String grade;           // A~E 등급 (PNS 미계산 상품이면 null)
     private int viewCount;
-    private boolean isFavorited;
+    private boolean isFavorited;            // = saved
     private Double scoreRankPercent;
     private BrandInfo brand;
     private CategoryInfo category;
-    private NutrientInfo nutrients;
-    private CoupangInfo coupang;   // 나중에 채울 예정, 지금은 null
-    private PnsInfo pns;            // 점수 미계산 상품이면 null
+    private NutrientInfo nutrients;         // = nutrition + servingSize
+    private CoupangInfo coupang;
+    private PnsInfo pns;                    // 점수 미계산 상품이면 null
     private NutrientBounds nutrientBounds;  // 영양소 바 차트 기준값
 
     @Getter
@@ -113,13 +137,13 @@ public class ProductDetailResponse {
     @Getter
     @Builder
     public static class PnsInfo {
-        private BigDecimal score;            // PFS 원점수 (-∞ ~ +9)
+        private BigDecimal score;            // 0~100 정규화 점수
         private String grade;                // A~E
-        private BigDecimal percentile;       // 카테고리 내 백분위 (0~100, 클수록 좋음)
+        private BigDecimal percentile;       // 카테고리 내 백분위 (0~100, 클수록 좋음) — 즉석 계산이면 null
         private BigDecimal topPercent;       // 상위 X% (= 100 - percentile)
         private Long parentCategoryId;       // 대분류 ID
         private String parentCategoryName;   // 대분류 이름 (예: "음료류")
         private int categoryTotal;           // 대분류 안 활성 상품 수
-        private int eerBand;                 // 사용된 EER 구간 (1500/2000/2500/3000)
+        private int eerBand;                 // 사용된 EER 구간 (1·2차 2000 고정)
     }
 }

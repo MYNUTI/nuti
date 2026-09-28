@@ -28,6 +28,7 @@ public class ProductExcelService {
             Map.entry("브랜드",           "brand"),
             Map.entry("대분류",           "categoryDepth1"),
             Map.entry("중분류",           "categoryDepth2"),
+            Map.entry("바코드",           "barcode"),
             Map.entry("서빙사이즈",        "servingSize"),
             Map.entry("열량_kcal",        "calories"),
             Map.entry("열량kcal",         "calories"),

@@ -20,12 +20,9 @@ public class GradeInputRepository {
 
     private final JdbcTemplate jdbcTemplate;
 
-    private static final String FROM_ANALYZED = """
-            FROM   products p
-            JOIN   categories c         ON c.id = p.category_id
-            JOIN   product_nutrients pn ON pn.product_id = p.id
-            WHERE  p.is_active = TRUE
-              AND  pn.calories_per_100g      IS NOT NULL
+    /** 분석 완료 판정 7종 (product_nutrients 별칭 pn). products.status 갱신(GradeBatchService)도 같은 조건을 쓴다 — ProductStatus.of 와 동치. */
+    public static final String ANALYZED_NUTRIENT_PREDICATE = """
+                   pn.calories_per_100g      IS NOT NULL
               AND  pn.protein_per_100g       IS NOT NULL
               AND  pn.sugar_per_100g         IS NOT NULL
               AND  pn.saturated_fat_per_100g IS NOT NULL
@@ -33,6 +30,13 @@ public class GradeInputRepository {
               AND  pn.cholesterol_per_100g   IS NOT NULL
               AND  pn.sodium_per_100g        IS NOT NULL
             """;
+
+    private static final String FROM_ANALYZED = """
+            FROM   products p
+            JOIN   categories c         ON c.id = p.category_id
+            JOIN   product_nutrients pn ON pn.product_id = p.id
+            WHERE  p.is_active = TRUE
+              AND  """ + ANALYZED_NUTRIENT_PREDICATE;
 
     public record GradeInput(long productId, long groupCategoryId, GradeFormula.Input input, boolean fiberIncluded) {}
 

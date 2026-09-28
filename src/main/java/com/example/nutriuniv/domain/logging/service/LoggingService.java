@@ -7,14 +7,18 @@ import com.example.nutriuniv.domain.logging.dto.FilterLogRequest;
 import com.example.nutriuniv.domain.logging.dto.ImpressionLogRequest;
 import com.example.nutriuniv.domain.logging.dto.LogContext;
 import com.example.nutriuniv.domain.logging.dto.SearchLogRequest;
+import com.example.nutriuniv.domain.logging.dto.ScanEventLogRequest;
 import com.example.nutriuniv.domain.logging.dto.ViewLogRequest;
 import com.example.nutriuniv.domain.logging.entity.ProductCtaLog;
 import com.example.nutriuniv.domain.logging.entity.ProductFilterLog;
 import com.example.nutriuniv.domain.logging.entity.ProductViewLog;
+import com.example.nutriuniv.domain.logging.entity.ScanEventLog;
+import com.example.nutriuniv.domain.logging.entity.ScanEventResult;
 import com.example.nutriuniv.domain.logging.entity.SearchLog;
 import com.example.nutriuniv.domain.logging.repository.ProductCtaLogRepository;
 import com.example.nutriuniv.domain.logging.repository.ProductFilterLogRepository;
 import com.example.nutriuniv.domain.logging.repository.ProductViewLogRepository;
+import com.example.nutriuniv.domain.logging.repository.ScanEventLogRepository;
 import com.example.nutriuniv.domain.logging.repository.SearchLogRepository;
 import com.example.nutriuniv.domain.product.entity.Product;
 import com.example.nutriuniv.domain.product.repository.ProductRepository;
@@ -41,6 +45,7 @@ public class LoggingService {
     private final ProductCtaLogRepository productCtaLogRepository;
     private final SearchLogRepository searchLogRepository;
     private final ProductFilterLogRepository productFilterLogRepository;
+    private final ScanEventLogRepository scanEventLogRepository;
     private final ProductRepository productRepository;
     private final VisitTrackingService visitTrackingService;
     private final EntityManager em;
@@ -139,6 +144,33 @@ public class LoggingService {
             log.error("[FilterLog] 로그 저장 실패 - filterType: {}, error: {}",
                     request.getFilterType(), e.getMessage());
         }
+    }
+
+    // ── POST /logging/scan-event (스캔 실패 원인별 적재, 기능명세서 9.1 신규) ────────
+
+    /**
+     * 인식 실패 / 데이터에 없음 / 체크섬 실패 / 권한 거부를 구분해 쌓는다 — 원인이 달라 화면도 로그도 분리(3.2).
+     * 유효 방문이 아니므로 세션 종료시각만 갱신. 바코드는 인식이 된 경우(NOT_IN_DATA·CHECKSUM_FAIL)에만 남긴다. 저장 실패해도 200.
+     */
+    @Transactional
+    public void logScanEvent(ScanEventLogRequest request, LogContext ctx) {
+        ScanEventResult result = ScanEventResult.from(request.getResult());   // 허용값 외 400
+
+        visitTrackingService.track(ctx, false);
+
+        try {
+            String barcode = result.keepsBarcode() && request.getBarcode() != null && !request.getBarcode().isBlank()
+                    ? truncate(request.getBarcode().trim(), 14) : null;
+            String surface = request.getSurface() == null || request.getSurface().isBlank()
+                    ? null : truncate(request.getSurface().trim(), 20);
+            scanEventLogRepository.save(ScanEventLog.create(ctx, result, barcode, surface));
+        } catch (Exception e) {
+            log.error("[ScanEventLog] 로그 저장 실패 - result: {}, error: {}", request.getResult(), e.getMessage());
+        }
+    }
+
+    private static String truncate(String s, int max) {
+        return s.length() <= max ? s : s.substring(0, max);
     }
 
     // ── POST /logging/impression (상품 노출, 음성 샘플용) ──────────────────────────

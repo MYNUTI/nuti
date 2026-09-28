@@ -41,6 +41,19 @@ public class GradeBatchService {
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """;
 
+    // 분석 완료 판정(4.1)으로 products.status 갱신 — 값이 바뀌는 행만 (WHERE 필수)
+    private static final String STATUS_REFRESH_SQL = """
+            UPDATE products p
+            SET    status = s.new_status
+            FROM  (SELECT p2.id,
+                          CASE WHEN pn.product_id IS NOT NULL AND """ + GradeInputRepository.ANALYZED_NUTRIENT_PREDICATE + """
+                               THEN 'ANALYZED' ELSE 'INSUFFICIENT' END AS new_status
+                   FROM   products p2
+                   LEFT JOIN product_nutrients pn ON pn.product_id = p2.id) s
+            WHERE  s.id = p.id
+              AND  p.status IS DISTINCT FROM s.new_status
+            """;
+
     private final GradeInputRepository inputRepository;
     private final JdbcTemplate jdbcTemplate;
     private final CalibrationService calibrationService;
@@ -135,11 +148,23 @@ public class GradeBatchService {
         for (int from = 0; from < rows.size(); from += BATCH_SIZE) {
             jdbcTemplate.batchUpdate(INSERT_SQL, rows.subList(from, Math.min(from + BATCH_SIZE, rows.size())));
         }
+        int statusUpdated = refreshProductStatus();
 
         long elapsed = System.currentTimeMillis() - startMs;
-        log.info("[GRADE] 완료 — 기존 {}행 삭제, 제품 {}개 × {}슬롯 = {}행 저장 ({}ms)",
-                deleted, inputs.size(), slotCount, rows.size(), elapsed);
+        log.info("[GRADE] 완료 — 기존 {}행 삭제, 제품 {}개 × {}슬롯 = {}행 저장, 제품 상태 {}건 갱신 ({}ms)",
+                deleted, inputs.size(), slotCount, rows.size(), statusUpdated, elapsed);
         return new GradeBatchResult(inputs.size(), rows.size(), slotCount, elapsed, cal.version());
+    }
+
+    /** products.status(분석 완료 여부) 갱신 — 바뀐 행 수. 호출자가 트랜잭션을 연다. */
+    public int refreshProductStatus() {
+        return jdbcTemplate.update(STATUS_REFRESH_SQL);
+    }
+
+    /** 부팅 시 백필용 (status 가 NULL 인 제품이 있을 때). */
+    public int refreshProductStatusInTx() {
+        Integer n = txTemplate.execute(status -> refreshProductStatus());
+        return n == null ? 0 : n;
     }
 
     private record Scored(long productId, long groupId, GradeFormula.Result result) {}
