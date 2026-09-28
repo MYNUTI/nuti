@@ -14,8 +14,7 @@ import com.example.nutriuniv.domain.goal.dto.GoalUpdateResponse;
 import com.example.nutriuniv.domain.goal.entity.GoalType;
 import com.example.nutriuniv.domain.goal.entity.UserGoal;
 import com.example.nutriuniv.domain.goal.repository.UserGoalRepository;
-import com.example.nutriuniv.domain.pns.service.GradeLabel;
-import com.example.nutriuniv.domain.pns.service.PnsLookupService;
+import com.example.nutriuniv.domain.grade.service.GradeLookupService;
 import com.example.nutriuniv.domain.product.entity.Product;
 import com.example.nutriuniv.domain.product.repository.ProductRepository;
 import lombok.RequiredArgsConstructor;
@@ -38,7 +37,7 @@ public class GoalService {
     private final UserGoalRepository userGoalRepository;
     private final ConsentRepository consentRepository;
     private final OwnerResolver ownerResolver;
-    private final PnsLookupService pnsLookupService;
+    private final GradeLookupService gradeLookupService;
     private final ProductRepository productRepository;
 
     // ── GET /me/goal ────────────────────────────────────────────────────────────────
@@ -94,7 +93,7 @@ public class GoalService {
     /** 다른 도메인(bootstrap·상품 결과 화면)에서 쓰는 현재 목표. 미설정·동의 전은 GENERAL. */
     @Transactional(readOnly = true)
     public GoalType currentGoal(Owner owner) {
-        return pnsLookupService.resolveGoalType(owner);
+        return gradeLookupService.resolveGoalType(owner);
     }
 
     // ── 내부 ──────────────────────────────────────────────────────────────────────
@@ -122,11 +121,11 @@ public class GoalService {
         if (product == null) {
             return null;
         }
-        String afterGrade = pnsLookupService.lookupGrade(productId, after);
+        String afterGrade = gradeLookupService.lookupGrade(productId, after);
         if (afterGrade == null) {
             return null;
         }
-        String beforeGrade = pnsLookupService.lookupGrade(productId, before);
+        String beforeGrade = gradeLookupService.lookupGrade(productId, before);
         boolean changed = !Objects.equals(beforeGrade, afterGrade);
         String reason = changed
                 ? String.format("%s 목표 기준으로 다시 계산해 %s에서 %s로 바뀌었어요.", after.label(), beforeGrade, afterGrade)
@@ -134,8 +133,8 @@ public class GoalService {
         return GoalUpdateResponse.Recalculation.builder()
                 .productId(product.getId())
                 .name(product.getName())
-                .before(GoalUpdateResponse.Grade.builder().grade(beforeGrade).label(GradeLabel.of(beforeGrade)).build())
-                .after(GoalUpdateResponse.Grade.builder().grade(afterGrade).label(GradeLabel.of(afterGrade)).build())
+                .before(GoalUpdateResponse.Grade.builder().grade(beforeGrade).label(gradeLookupService.label(before, beforeGrade)).build())
+                .after(GoalUpdateResponse.Grade.builder().grade(afterGrade).label(gradeLookupService.label(after, afterGrade)).build())
                 .changed(changed)
                 .reason(reason)
                 .build();

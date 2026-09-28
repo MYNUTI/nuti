@@ -6,8 +6,7 @@ import com.example.nutriuniv.common.security.Actor;
 import com.example.nutriuniv.common.security.Owner;
 import com.example.nutriuniv.domain.consent.service.OwnerResolver;
 import com.example.nutriuniv.domain.goal.entity.GoalType;
-import com.example.nutriuniv.domain.pns.service.GradeLabel;
-import com.example.nutriuniv.domain.pns.service.PnsLookupService;
+import com.example.nutriuniv.domain.grade.service.GradeLookupService;
 import com.example.nutriuniv.domain.product.entity.Product;
 import com.example.nutriuniv.domain.product.repository.ProductRepository;
 import com.example.nutriuniv.domain.saved.dto.SaveResultResponse;
@@ -38,7 +37,7 @@ public class SavedProductService {
     private final SavedProductRepository savedProductRepository;
     private final ProductRepository productRepository;
     private final OwnerResolver ownerResolver;
-    private final PnsLookupService pnsLookupService;
+    private final GradeLookupService gradeLookupService;
 
     // ── GET /me/saved-products ───────────────────────────────────────────────────────
 
@@ -55,9 +54,9 @@ public class SavedProductService {
                 : savedProductRepository.findByAnonymousIdAndProductIsActiveTrue(owner.anonymousId(), pageable);
 
         // 목표에 맞는 등급 일괄 조회 (N+1 방지)
-        GoalType goal = pnsLookupService.resolveGoalType(owner);
+        GoalType goal = gradeLookupService.resolveGoalType(owner);
         List<Long> productIds = saved.getContent().stream().map(s -> s.getProduct().getId()).toList();
-        Map<Long, String> gradeMap = pnsLookupService.lookupGrades(productIds, PnsLookupService.DEFAULT_EER_BAND, goal.pnsGoal());
+        Map<Long, String> gradeMap = gradeLookupService.lookupGrades(productIds, goal);
 
         List<SavedProductPageResponse.Item> items = saved.getContent().stream()
                 .map(s -> {
@@ -70,7 +69,7 @@ public class SavedProductService {
                             // 제품 상태 컬럼(ANALYZED/INSUFFICIENT)은 핵심 루프 브랜치에서 도입 — 그때까지 등급 유무로 대신한다
                             .status(grade != null ? "ANALYZED" : "INSUFFICIENT")
                             .grade(grade)
-                            .label(GradeLabel.of(grade))
+                            .label(gradeLookupService.label(goal, grade))
                             .savedAt(s.getCreatedAt())
                             .build();
                 })
