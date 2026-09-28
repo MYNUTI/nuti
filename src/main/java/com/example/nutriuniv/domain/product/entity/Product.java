@@ -1,5 +1,6 @@
 package com.example.nutriuniv.domain.product.entity;
 
+import com.example.nutriuniv.common.util.SearchNormalizer;
 import com.example.nutriuniv.domain.brand.entity.Brand;
 import com.example.nutriuniv.domain.category.entity.Category;
 import com.example.nutriuniv.domain.coupang.entity.CoupangLink;
@@ -55,6 +56,13 @@ public class Product {
     @Column(length = 20)
     private ProductStatus status;
 
+    // 검색 색인 (기능명세서 6.1·6.2) — 저장 시 콜백이 name 에서 만든다. 공백·특수문자 제거 소문자 / 초성. GIN(trgm) 인덱스는 db/manual/06_search.sql
+    @Column(name = "name_normalized", length = 255)
+    private String nameNormalized;
+
+    @Column(name = "name_chosung", length = 255)
+    private String nameChosung;
+
     @Column(name = "view_count", nullable = false)
     private int viewCount = 0;
 
@@ -73,6 +81,14 @@ public class Product {
     @LastModifiedDate
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
+
+    /** 저장·수정 때마다 검색 색인 컬럼을 이름에서 다시 만든다 — 저장할 때와 찾을 때 같은 함수(SearchNormalizer). */
+    @PrePersist
+    @PreUpdate
+    private void refreshSearchIndex() {
+        this.nameNormalized = SearchNormalizer.normalize(this.name);
+        this.nameChosung = SearchNormalizer.chosung(this.name);
+    }
 
     public static Product create(String name, Category category, Brand brand) {
         Product p = new Product();
