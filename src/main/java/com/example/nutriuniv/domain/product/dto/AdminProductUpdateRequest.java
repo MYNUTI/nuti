@@ -15,4 +15,5 @@ public class AdminProductUpdateRequest {
     private Boolean isActive;
     private String imageUrl;
     private BigDecimal nutritionScore;
+    private String barcode;         // 8·12·13·14자리 → 13자리 정규화 저장. 빈 문자열이면 제거, null 이면 유지
 }

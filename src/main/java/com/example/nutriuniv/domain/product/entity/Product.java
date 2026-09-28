@@ -46,6 +46,15 @@ public class Product {
     @Column(name = "nutrition_score", precision = 5, scale = 2)
     private BigDecimal nutritionScore;
 
+    // 바코드 — 13자리 정규화 값만 저장 (기능명세서 3.1). 저장·조회 모두 BarcodeNormalizer 를 거친다. 없으면 null
+    @Column(length = 13, unique = true)
+    private String barcode;
+
+    // 분석 완료 판정 (4.1): 판정 7종 *_per_100g 전부 있으면 ANALYZED, 아니면 INSUFFICIENT. 영양정보 저장 시와 등급 배치가 갱신
+    @Enumerated(EnumType.STRING)
+    @Column(length = 20)
+    private ProductStatus status;
+
     @Column(name = "view_count", nullable = false)
     private int viewCount = 0;
 
@@ -92,6 +101,15 @@ public class Product {
 
     public void updateImageUrl(String imageUrl) {
         this.imageUrl = imageUrl;
+    }
+
+    /** 정규화된 13자리(BarcodeNormalizer.normalize 결과)만 넣는다. null 이면 제거. */
+    public void updateBarcode(String normalized13) {
+        this.barcode = normalized13;
+    }
+
+    public void updateStatus(ProductStatus status) {
+        this.status = status;
     }
 
     public void update(String name, Category category, Brand brand,
