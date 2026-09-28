@@ -10,6 +10,7 @@ import com.example.nutriuniv.domain.consent.dto.HealthConsentResponse;
 import com.example.nutriuniv.domain.consent.entity.AnonymousUser;
 import com.example.nutriuniv.domain.consent.entity.Consent;
 import com.example.nutriuniv.domain.consent.entity.ConsentAction;
+import com.example.nutriuniv.domain.consent.entity.ConsentItem;
 import com.example.nutriuniv.domain.consent.entity.ConsentType;
 import com.example.nutriuniv.domain.consent.entity.Policy;
 import com.example.nutriuniv.domain.consent.entity.PolicyType;
@@ -108,6 +109,25 @@ public class ConsentService {
         Consent saved = consentRepository.save(
                 Consent.agree(Owner.ofAnonymous(issued.getAnonymousId()), ConsentType.PRIVACY, version, items, ipHash, userAgent));
         return ConsentResponse.of(issued.getAnonymousId(), saved.getCreatedAt());
+    }
+
+    // ── 로그아웃 후 새 익명 ID (API 명세 /auth/logout) ──────────────────────────────
+
+    /**
+     * 익명 ID 발급의 두 번째 지점 — 병합된 옛 ID 는 더 못 쓰므로 로그아웃한 기기에 새 ID 를 준다.
+     * 방금 로그아웃한 사람은 계정으로 개인정보 동의를 한 사람이므로, 그 최신 동의(버전·항목·증빙)를 새 익명 소유로 한 줄 덧붙여 원장을 맞춘다.
+     * 1차(register) 회원처럼 원장 행이 없으면 플래그만으로 발급한다.
+     */
+    @Transactional
+    public String issueAnonymousAfterLogout(Long userId) {
+        AnonymousUser issued = anonymousUserRepository.save(AnonymousUser.issue());
+        latest(Owner.ofUser(userId), ConsentType.PRIVACY)
+                .filter(c -> c.getAction() == ConsentAction.AGREE)
+                .ifPresent(src -> consentRepository.save(Consent.agree(
+                        Owner.ofAnonymous(issued.getAnonymousId()), ConsentType.PRIVACY, src.getPolicyVersion(),
+                        src.getItems().stream().map(ConsentItem::getItemCode).toList(),
+                        src.getIpHash(), src.getUserAgent())));
+        return issued.getAnonymousId();
     }
 
     // ── /me/health-consent (건강정보 동의 3종) ──────────────────────────────────────
