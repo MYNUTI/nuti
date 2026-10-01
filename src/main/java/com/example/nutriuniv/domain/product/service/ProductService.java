@@ -21,8 +21,10 @@ import com.example.nutriuniv.domain.user.entity.UserNutrition;
 import com.example.nutriuniv.domain.user.repository.UserNutritionRepository;
 import com.example.nutriuniv.domain.product.dto.*;
 import com.example.nutriuniv.domain.product.entity.Product;
+import com.example.nutriuniv.domain.product.entity.ProductChangeLog;
 import com.example.nutriuniv.domain.product.entity.ProductNutrient;
 import com.example.nutriuniv.domain.product.enums.NutrientClaim;
+import com.example.nutriuniv.domain.product.repository.ProductChangeLogRepository;
 import com.example.nutriuniv.domain.product.repository.ProductNutrientRepository;
 import com.example.nutriuniv.domain.product.repository.ProductRepository;
 import com.example.nutriuniv.domain.product.specification.NutrientClaimSpecification;
@@ -39,8 +41,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -64,6 +68,7 @@ public class ProductService {
     private final ProductVectorByDietRepository productVectorByDietRepository;
     private final RecommendationService recommendationService;
     private final ProductResultService productResultService;
+    private final ProductChangeLogRepository productChangeLogRepository;
 
     // ── 일반 유저: 상품 목록 조회 ─────────────────────────────────────────────────
 
@@ -289,6 +294,12 @@ public class ProductService {
 
     @Transactional
     public void updateProduct(Long productId, AdminProductUpdateRequest request) {
+        updateProduct(productId, request, null);
+    }
+
+    /** @param adminUserId 수정 이력에 남길 관리자 — 컨트롤러가 Actor 에서 넘긴다 */
+    @Transactional
+    public void updateProduct(Long productId, AdminProductUpdateRequest request, Long adminUserId) {
 
         Product product = productRepository.findById(productId)
                 .orElseThrow(() -> new CustomException(ErrorCode.RESOURCE_NOT_FOUND));
@@ -306,6 +317,16 @@ public class ProductService {
         String name      = request.getName()           != null ? request.getName()           : product.getName();
         String imageUrl  = request.getImageUrl()       != null ? request.getImageUrl()       : product.getImageUrl();
         BigDecimal score = request.getNutritionScore() != null ? request.getNutritionScore() : product.getNutritionScore();
+
+        // 수정 이력 (10.4) — 바뀐 필드만 「필드: 전 → 후」
+        List<String> changes = new ArrayList<>();
+        if (!Objects.equals(name, product.getName()))         changes.add("name: " + product.getName() + " → " + name);
+        if (!Objects.equals(imageUrl, product.getImageUrl())) changes.add("imageUrl: " + product.getImageUrl() + " → " + imageUrl);
+        if (request.getCategoryId() != null && (product.getCategory() == null || !request.getCategoryId().equals(product.getCategory().getId())))
+            changes.add("category: " + (product.getCategory() == null ? null : product.getCategory().getId()) + " → " + request.getCategoryId());
+        if (request.getBrandId() != null && (product.getBrand() == null || !request.getBrandId().equals(product.getBrand().getId())))
+            changes.add("brand: " + (product.getBrand() == null ? null : product.getBrand().getId()) + " → " + request.getBrandId());
+        String barcodeBefore = product.getBarcode();
 
         product.update(name, category, brand, imageUrl, score);
 
@@ -326,6 +347,21 @@ public class ProductService {
         if (request.getIsActive() != null) {
             if (request.getIsActive()) product.activate();
             else product.deactivate();
+        }
+
+        // 재적재 보호 (10.4): 적재가 덮어쓰는 데이터 필드(이름·이미지·분류·브랜드·바코드)를 고쳤으면 자동으로 켠다. 명시 지정이 있으면 그것을 따른다
+        if (!Objects.equals(barcodeBefore, product.getBarcode())) changes.add("barcode: " + barcodeBefore + " → " + product.getBarcode());
+        if (request.getManuallyCorrected() != null) {
+            if (request.getManuallyCorrected()) product.markManuallyCorrected();
+            else product.clearManualCorrection();
+            changes.add("manuallyCorrected: " + request.getManuallyCorrected());
+        } else if (!changes.isEmpty()) {
+            product.markManuallyCorrected();
+        }
+        if (!changes.isEmpty() || (request.getMemo() != null && !request.getMemo().isBlank())) {
+            String summary = String.join(" / ", changes);
+            if (request.getMemo() != null && !request.getMemo().isBlank()) summary = summary.isEmpty() ? request.getMemo().trim() : summary + " — " + request.getMemo().trim();
+            productChangeLogRepository.save(ProductChangeLog.create(productId, null, adminUserId, ProductChangeLog.Source.ADMIN_UPDATE, summary));
         }
     }
 

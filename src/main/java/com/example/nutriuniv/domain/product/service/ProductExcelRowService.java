@@ -61,8 +61,13 @@ public class ProductExcelRowService {
                 categoryRepository.findByNameAndDepthAndParent(depth2Name, 2, depth1)
                         .orElseGet(() -> categoryRepository.save(Category.createDepth2(depth2Name, depth1))));
 
-        Product product = productRepository.findByName(productName)
-                .orElseGet(() -> productRepository.save(Product.create(productName, depth2, brand)));
+        // 수동 수정 보호 (10.4) — 관리자가 고친 제품은 재적재가 덮어쓰지 않는다. 행 전체(분류·브랜드·바코드·영양성분)를 건너뛴다
+        Product existing = productRepository.findByName(productName).orElse(null);
+        if (existing != null && existing.isManuallyCorrected()) {
+            log.info("[ExcelUpload] 수동 수정 보호 제품 — 행 건너뜀: {} (id={})", productName, existing.getId());
+            return;
+        }
+        Product product = existing != null ? existing : productRepository.save(Product.create(productName, depth2, brand));
         product.update(depth2, brand);
 
         // 바코드 (선택 열) — 13자리 정규화 저장 (3.1). 형식·체크섬 오류나 다른 제품과 중복이면 행은 살리고 바코드만 건너뛴다

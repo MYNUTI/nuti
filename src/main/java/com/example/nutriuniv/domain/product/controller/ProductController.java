@@ -122,13 +122,16 @@ public class ProductController {
 
     // PATCH /admin/products/{productId}
     @Operation(summary = "상품 수정",
-            description = "전달된 필드만 수정합니다. null 필드는 기존 값을 유지합니다.")
+            description = "전달된 필드만 수정합니다. null 필드는 기존 값을 유지합니다. " +
+                    "이름·이미지·분류·브랜드·바코드를 고치면 수정 이력(product_change_logs)을 남기고 재적재 보호(manuallyCorrected)를 켭니다 — 명세 10.4. " +
+                    "manuallyCorrected=false 로 보호를 해제할 수 있습니다.")
     @PatchMapping("/admin/products/{productId}")
     public ResponseEntity<CommonResponse<Void>> updateProduct(
+            Actor actor,
             @Parameter(description = "상품 ID") @PathVariable Long productId,
             @RequestBody AdminProductUpdateRequest request) {
 
-        productService.updateProduct(productId, request);
+        productService.updateProduct(productId, request, actor.userId());
         return ResponseEntity.ok(CommonResponse.success(null));
     }
 

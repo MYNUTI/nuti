@@ -66,6 +66,14 @@ public class Product {
     @Column(name = "view_count", nullable = false)
     private int viewCount = 0;
 
+    // 수동 수정 보호 (기능명세서 10.4 「수정한 값이 다음 적재 때 덮어쓰이지 않게」) — TRUE 면 엑셀 재적재가 이 제품 행을 건너뛴다.
+    // 관리자 상품·영양성분 수정과 제보 처리 완료(DONE)가 켠다. 해제는 PATCH /admin/products/{id} 의 manuallyCorrected=false
+    @Column(name = "manually_corrected", nullable = false, columnDefinition = "boolean default false")
+    private boolean manuallyCorrected = false;
+
+    @Column(name = "corrected_at")
+    private LocalDateTime correctedAt;
+
     @Column(name = "is_active", nullable = false)
     private boolean isActive = true;
 
@@ -126,6 +134,18 @@ public class Product {
 
     public void updateStatus(ProductStatus status) {
         this.status = status;
+    }
+
+    /** 관리자가 손으로 고쳤다 — 다음 엑셀 적재에서 이 행을 건너뛴다. */
+    public void markManuallyCorrected() {
+        this.manuallyCorrected = true;
+        this.correctedAt = LocalDateTime.now();
+    }
+
+    /** 보호 해제 — 다음 적재가 다시 덮어쓴다. */
+    public void clearManualCorrection() {
+        this.manuallyCorrected = false;
+        this.correctedAt = null;
     }
 
     public void update(String name, Category category, Brand brand,

@@ -20,4 +20,7 @@ public interface CoupangLinkRepository extends JpaRepository<CoupangLink, Long> 
     long countByLinkStatus(String linkStatus);
 
     List<CoupangLink> findByProductIdIn(List<Long> productIds);
+
+    // 링크 인식 — 붙여넣은 쿠팡 URL 의 상품 ID 가 이미 연결된 제품인가
+    Optional<CoupangLink> findFirstByCoupangProductIdAndLinkStatus(String coupangProductId, String linkStatus);
 }

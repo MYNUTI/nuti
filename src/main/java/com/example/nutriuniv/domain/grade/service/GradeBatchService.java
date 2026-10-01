@@ -156,6 +156,36 @@ public class GradeBatchService {
         return new GradeBatchResult(inputs.size(), rows.size(), slotCount, elapsed, cal.version());
     }
 
+    /**
+     * 한 제품의 9슬롯만 현행 기준으로 다시 계산해 교체 (관리자 영양성분 수정 직후 — 기능명세서 10.4 「영양정보를 고치면 등급도 바뀐다」).
+     * 백분위는 비워 둔다(다음 전량 배치가 채운다). input 이 null(영양정보 부족)이면 기존 슬롯 삭제만. <b>호출자가 트랜잭션을 연다.</b>
+     * @return 목표별 조회 슬롯(EerBand.defaultSlot)의 등급 — 삭제만 했으면 빈 맵
+     */
+    public Map<GoalType, String> recomputeOne(long productId, GradeFormula.Input input) {
+        jdbcTemplate.update("DELETE FROM product_grades WHERE product_id = ?", productId);
+        Map<GoalType, String> defaults = new EnumMap<>(GoalType.class);
+        if (input == null) return defaults;
+
+        Calibration cal = calibrationService.current();
+        Timestamp now = Timestamp.valueOf(LocalDateTime.now());
+        List<Object[]> rows = new ArrayList<>(9);
+        for (GoalType goal : GoalType.values()) {
+            for (int band : EerBand.slots(goal)) {
+                GradeFormula.Result r = GradeFormula.evaluate(cal, goal, band, input);
+                rows.add(new Object[]{
+                        productId, goal.name(), band,
+                        BigDecimal.valueOf(r.score()).setScale(1, RoundingMode.HALF_UP),
+                        r.grade().name(), null,
+                        r.topPenaltyNutrient() == null ? null : r.topPenaltyNutrient().name(),
+                        cal.recalibrationId(), now
+                });
+                if (band == EerBand.defaultSlot(goal)) defaults.put(goal, r.grade().name());
+            }
+        }
+        jdbcTemplate.batchUpdate(INSERT_SQL, rows);
+        return defaults;
+    }
+
     /** products.status(분석 완료 여부) 갱신 — 바뀐 행 수. 호출자가 트랜잭션을 연다. */
     public int refreshProductStatus() {
         return jdbcTemplate.update(STATUS_REFRESH_SQL);
