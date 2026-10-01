@@ -30,6 +30,8 @@ public enum ErrorCode {
     RESOURCE_NOT_FOUND(HttpStatus.NOT_FOUND, "요청한 리소스를 찾을 수 없습니다."),
     USER_NOT_FOUND(HttpStatus.NOT_FOUND, "해당 사용자를 찾을 수 없습니다."),
     PRODUCT_NOT_FOUND(HttpStatus.NOT_FOUND, "제품을 찾을 수 없습니다."),
+    // 매핑은 있지만 게이트(분석 완료 300건 + A·D 각 1건)를 못 넘은 분류 — 클라이언트가 「아직 열리지 않은 분류」 화면을 띄운다 (기능명세서 6.3)
+    RANKING_NOT_OPEN(HttpStatus.NOT_FOUND, "아직 랭킹이 열리지 않은 분류입니다."),
 
     // 409 Conflict
     DUPLICATE_RESOURCE(HttpStatus.CONFLICT, "데이터가 이미 존재합니다."),

@@ -8,6 +8,7 @@ import com.example.nutriuniv.domain.admin.repository.AdminMetricsRepository;
 import com.example.nutriuniv.domain.admin.repository.AdminMetricsRepository.CategoryRow;
 import com.example.nutriuniv.domain.admin.repository.AdminMetricsRepository.DataTotals;
 import com.example.nutriuniv.domain.admin.repository.AdminMetricsRepository.RetentionCounts;
+import com.example.nutriuniv.domain.ranking.service.RankingGate;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -26,7 +27,8 @@ import java.util.List;
 @Service
 public class AdminMetricsService {
 
-    public static final int RANKING_GATE_MIN_ANALYZED = 300;
+    /** 랭킹 게이트 하한 — 판정 자체는 RankingGate(랭킹 배치와 같은 규칙). */
+    public static final int RANKING_GATE_MIN_ANALYZED = RankingGate.MIN_ANALYZED;
     private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("yyyyMMdd");
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
@@ -94,7 +96,7 @@ public class AdminMetricsService {
                         .ratio(ratio(r.analyzedCount(), r.totalCount()))
                         .gradeACount(r.aCount())
                         .gradeDCount(r.dCount())
-                        .rankingGatePassed(r.analyzedCount() >= RANKING_GATE_MIN_ANALYZED && r.aCount() >= 1 && r.dCount() >= 1)
+                        .rankingGatePassed(RankingGate.passes(r.analyzedCount(), r.aCount(), r.dCount()))
                         .build())
                 .toList();
 
