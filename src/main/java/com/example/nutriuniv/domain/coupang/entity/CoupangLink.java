@@ -58,6 +58,11 @@ public class CoupangLink {
     @Column(name = "last_synced_at")
     private LocalDateTime lastSyncedAt;
 
+    // 구매 링크 매칭 종류 수동 지정 (기능명세서 8.1) — EXACT | NAME_SEARCH. null 이면 PurchaseLinkRules 가 상품명 비교로 자동 판정.
+    // 관리자가 「정확히 같은 제품」임을 확인한 경우에만 EXACT 를 넣는다(가격 노출 조건). 자동 판정은 보수적이라 대부분 NAME_SEARCH.
+    @Column(name = "match_type", length = 20)
+    private String matchType;
+
     @LastModifiedDate
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
@@ -88,5 +93,10 @@ public class CoupangLink {
     public void syncFailed() {
         this.linkStatus = "FAILED";
         this.lastSyncedAt = LocalDateTime.now();
+    }
+
+    /** 매칭 종류 수동 지정 — null 이면 자동 판정으로 되돌린다. */
+    public void overrideMatchType(String matchType) {
+        this.matchType = matchType;
     }
 }
