@@ -40,6 +40,9 @@ jobs:
           naver.redirect-uri=$NAVER_REDIRECT_URI
           app.frontend-url=$APP_FRONTEND_URL
           server.forward-headers-strategy=framework
+          # 2차부터 v2 스키마 사용(기존 public 테이블은 보존). DB URL 에 currentSchema=v2,public 필요 — db/manual/09_schema_v2.sql
+          spring.jpa.properties.hibernate.default_schema=v2
+          spring.jpa.properties.hibernate.hbm2ddl.create_namespaces=true
           EOF
         env:
           SPRING_DATASOURCE_URL: ${{ secrets.SPRING_DATASOURCE_URL }}
