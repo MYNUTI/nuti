@@ -3,7 +3,7 @@ package com.example.nutriuniv.common.security;
 import com.example.nutriuniv.common.exception.ErrorCode;
 import com.example.nutriuniv.common.response.CommonResponse;
 import com.example.nutriuniv.common.response.ErrorResponse;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
