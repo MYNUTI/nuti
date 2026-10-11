@@ -40,6 +40,11 @@ jobs:
           naver.redirect-uri=$NAVER_REDIRECT_URI
           app.frontend-url=$APP_FRONTEND_URL
           server.forward-headers-strategy=framework
+          # 2차부터 v2 스키마 사용(기존 public 테이블은 보존) — db/manual/09_schema_v2.sql
+          # JPA 쿼리·테이블 생성은 default_schema, 네이티브 SQL 은 search_path 로 v2 를 본다. public 은 pg_trgm 함수(similarity) 때문에 둔다
+          spring.jpa.properties.hibernate.default_schema=v2
+          spring.jpa.properties.hibernate.hbm2ddl.create_namespaces=true
+          spring.datasource.hikari.connection-init-sql=SET search_path TO v2, public
           EOF
         env:
           SPRING_DATASOURCE_URL: ${{ secrets.SPRING_DATASOURCE_URL }}
