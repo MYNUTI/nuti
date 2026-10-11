@@ -18,6 +18,15 @@ public interface ProductRepository extends JpaRepository<Product, Long>, JpaSpec
 
     Optional<Product> findByName(String name);
 
+    // 바코드 스캔 조회 (3.1) — 13자리 정규화 값으로만 찾는다
+    Optional<Product> findByBarcode(String barcode);
+
+    // 바코드 중복 검사 — 다른 제품이 같은 바코드를 갖는가
+    boolean existsByBarcodeAndIdNot(String barcode, Long id);
+
+    // 부팅 시 status 백필 필요 여부
+    long countByStatusIsNull();
+
     // 브랜드에 상품 존재 시 삭제 차단
     boolean existsByBrandAndIsActiveTrue(Brand brand);
 

@@ -5,14 +5,10 @@ import jakarta.validation.constraints.Size;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
-import java.time.LocalDate;
-
+/** PATCH /users/me 입력 — 이메일 외 프로필은 수집하지 않으므로 수정 가능한 항목도 이메일·닉네임만. */
 @Getter
 @NoArgsConstructor
 public class UserUpdateRequest {
-
-    @Size(max = 50, message = "이름은 50자 이하여야 합니다.")
-    private String name;
 
     @Pattern(
             regexp = "^[a-zA-Z0-9._%+\\-]+@[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,}$",
@@ -20,10 +16,6 @@ public class UserUpdateRequest {
     )
     private String email;
 
-    @Size(max = 50, message = "닉네임은 50자 이하여야 합니다.")
+    @Size(min = 1, max = 50, message = "닉네임은 1~50자여야 합니다.")
     private String nickname;
-
-    private String gender;
-
-    private LocalDate birthDate;
 }

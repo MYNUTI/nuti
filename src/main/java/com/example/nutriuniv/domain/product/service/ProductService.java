@@ -2,14 +2,18 @@ package com.example.nutriuniv.domain.product.service;
 
 import com.example.nutriuniv.common.exception.CustomException;
 import com.example.nutriuniv.common.exception.ErrorCode;
+import com.example.nutriuniv.common.security.Actor;
+import com.example.nutriuniv.domain.analysis.entity.AnalysisRequestChannel;
 import com.example.nutriuniv.domain.brand.entity.Brand;
 import com.example.nutriuniv.domain.brand.repository.BrandRepository;
 import com.example.nutriuniv.domain.category.entity.Category;
 import com.example.nutriuniv.domain.category.repository.CategoryRepository;
-import com.example.nutriuniv.domain.like.repository.UserFavoriteRepository;
+import com.example.nutriuniv.domain.saved.repository.SavedProductRepository;
 import com.example.nutriuniv.domain.coupang.entity.CoupangLink;
 import com.example.nutriuniv.domain.coupang.repository.CoupangLinkRepository;
-import com.example.nutriuniv.domain.pns.service.PnsLookupService;
+import com.example.nutriuniv.domain.goal.entity.GoalType;
+import com.example.nutriuniv.domain.grade.calc.EerBand;
+import com.example.nutriuniv.domain.grade.service.GradeLookupService;
 import com.example.nutriuniv.domain.recommendation.repository.ProductVectorByDietRepository;
 import com.example.nutriuniv.domain.recommendation.repository.RecommendationCacheRepository;
 import com.example.nutriuniv.domain.recommendation.service.RecommendationService;
@@ -17,12 +21,15 @@ import com.example.nutriuniv.domain.user.entity.UserNutrition;
 import com.example.nutriuniv.domain.user.repository.UserNutritionRepository;
 import com.example.nutriuniv.domain.product.dto.*;
 import com.example.nutriuniv.domain.product.entity.Product;
+import com.example.nutriuniv.domain.product.entity.ProductChangeLog;
 import com.example.nutriuniv.domain.product.entity.ProductNutrient;
 import com.example.nutriuniv.domain.product.enums.NutrientClaim;
+import com.example.nutriuniv.domain.product.repository.ProductChangeLogRepository;
 import com.example.nutriuniv.domain.product.repository.ProductNutrientRepository;
 import com.example.nutriuniv.domain.product.repository.ProductRepository;
 import com.example.nutriuniv.domain.product.specification.NutrientClaimSpecification;
 import com.example.nutriuniv.domain.product.specification.ProductSpecification;
+import com.example.nutriuniv.domain.product.util.BarcodeNormalizer;
 import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -34,8 +41,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -50,14 +59,16 @@ public class ProductService {
     private final ProductNutrientRepository productNutrientRepository;
     private final BrandRepository brandRepository;
     private final CategoryRepository categoryRepository;
-    private final UserFavoriteRepository userFavoriteRepository;
+    private final SavedProductRepository savedProductRepository;
     private final EntityManager entityManager;
     private final CoupangLinkRepository coupangLinkRepository;
-    private final PnsLookupService pnsLookupService;
+    private final GradeLookupService gradeLookupService;
     private final UserNutritionRepository userNutritionRepository;
     private final RecommendationCacheRepository recommendationCacheRepository;
     private final ProductVectorByDietRepository productVectorByDietRepository;
     private final RecommendationService recommendationService;
+    private final ProductResultService productResultService;
+    private final ProductChangeLogRepository productChangeLogRepository;
 
     // ── 일반 유저: 상품 목록 조회 ─────────────────────────────────────────────────
 
@@ -96,9 +107,8 @@ public class ProductService {
             spec = spec.and(NutrientClaimSpecification.hasClaims(claims));
         }
 
-        // goal + EER 밴드 결정
-        int eerBand = pnsLookupService.resolveEerBand(userId);
-        String goal = pnsLookupService.resolveGoal(userId);
+        // 목표 결정 — 등급은 목표별 사전계산, 열량구간은 1·2차 2000 고정(슬롯은 GradeLookupService 가 정한다)
+        GoalType goal = gradeLookupService.resolveGoalType(userId);
 
         // SCORE/ACCURACY(키워드 있을 때)/RECOMMENDED(로그인 시) 정렬은 네이티브 쿼리, 나머지는 JPA 정렬
         boolean hasKeyword = request.getKeyword() != null && !request.getKeyword().isBlank();
@@ -115,7 +125,7 @@ public class ProductService {
                 claimFilteredIds = productRepository.findAll(spec, PageRequest.of(0, Integer.MAX_VALUE))
                         .stream().map(Product::getId).collect(Collectors.toList());
             }
-            page = findAllOrderByPnsScore(request, eerBand, goal, userId != null, claimFilteredIds);
+            page = findAllOrderByGradeScore(request, goal, claimFilteredIds);
         } else if ("ACCURACY".equals(request.getSort()) && hasKeyword) {
             // 정확도순: 키워드가 있을 때만 트라이그램 유사도 정렬. 키워드 없으면 아래 else로 폴백(최신순).
             List<Long> claimFilteredIds = null;
@@ -138,7 +148,7 @@ public class ProductService {
             page = productRepository.findAll(spec, pageable);
         }
         List<Long> productIds = page.getContent().stream().map(Product::getId).collect(Collectors.toList());
-        Map<Long, String> gradeMap = pnsLookupService.lookupGrades(productIds, eerBand, goal);
+        Map<Long, String> gradeMap = gradeLookupService.lookupGrades(productIds, goal);
 
         Map<Long, Integer> priceMap = coupangLinkRepository.findByProductIdIn(productIds).stream()
                 .filter(l -> "LINKED".equals(l.getLinkStatus()))
@@ -159,46 +169,44 @@ public class ProductService {
     // ── 일반 유저: 상품 상세 조회 ─────────────────────────────────────────────────
 
     @Transactional
-    public ProductDetailResponse getProduct(Long productId, Long userId) {
+    public ProductDetailResponse getProduct(Long productId, Actor actor) {
 
+        // 없는·비활성 제품 → 404 (클라는 검색으로 유도, 기능명세서 5.1)
         Product product = productRepository.findById(productId)
-                .orElseThrow(() -> new CustomException(ErrorCode.RESOURCE_NOT_FOUND));
-
-        if (!product.isActive()) {
-            throw new CustomException(ErrorCode.RESOURCE_NOT_FOUND);
-        }
+                .filter(Product::isActive)
+                .orElseThrow(() -> new CustomException(ErrorCode.PRODUCT_NOT_FOUND));
 
         product.increaseViewCount();
 
-        ProductNutrient nutrient = productNutrientRepository.findById(productId)
-                .orElseThrow(() -> new CustomException(ErrorCode.RESOURCE_NOT_FOUND));
+        // 영양정보 행이 없으면 영양정보 부족(INSUFFICIENT) — 404 가 아니다
+        ProductNutrient nutrient = productNutrientRepository.findById(productId).orElse(null);
 
         CoupangLink coupangLink = coupangLinkRepository.findByProduct(product).orElse(null);
 
-        // goal + EER 밴드 결정 후 단건 PNS 조회
-        int eerBand = pnsLookupService.resolveEerBand(userId);
-        String goal = pnsLookupService.resolveGoal(userId);
-        PnsLookupService.PnsLookupResult pnsResult = pnsLookupService.lookup(product.getId(), eerBand, goal);
-        ProductDetailResponse.PnsInfo pnsInfo = buildPnsInfo(product, pnsResult, eerBand);
+        // 결과 화면 공용 블록 — 상태·등급·감점 요인·적용 목표·저장 여부. 영양정보 부족이면 대기 목록(NUTRITION_FILL) 자동 등록
+        ProductResultService.ProductResult result =
+                productResultService.build(product, nutrient, actor, AnalysisRequestChannel.AUTO_RESULT);
 
-        // 영양소 바 차트 기준값 — 로그인 유저는 실제 EER, 비로그인은 eerBand(2000) 사용
-        double eer = resolveEer(userId, eerBand);
+        // 1차 웹 호환 블록 — pns(백분위)·영양소 바 차트 기준값. 열량구간은 1·2차 2000 고정
+        int eerBand = EerBand.DEFAULT.kcal();
+        ProductDetailResponse.PnsInfo pnsInfo = buildPnsInfo(product, result.gradeView(), eerBand);
+        double eer = resolveEer(actor.userId(), eerBand);
         Long parentCategoryId = product.getCategory().getParent() == null
                 ? null : product.getCategory().getParent().getId();
         ProductDetailResponse.NutrientBounds nutrientBounds = buildNutrientBounds(eer, parentCategoryId);
 
-        return toDetailResponse(product, nutrient, userId, coupangLink, pnsInfo, nutrientBounds);
+        return toDetailResponse(product, nutrient, coupangLink, result, pnsInfo, nutrientBounds);
     }
 
     private ProductDetailResponse.PnsInfo buildPnsInfo(Product product,
-                                                       PnsLookupService.PnsLookupResult result,
+                                                       GradeLookupService.GradeView result,
                                                        int eerBand) {
         if (result == null) return null;
 
         Category parent = product.getCategory().getParent();
         Long parentId     = parent == null ? null : parent.getId();
         String parentName = parent == null ? null : parent.getName();
-        int total = pnsLookupService.countActiveByParentCategory(parentId);
+        int total = gradeLookupService.countActiveByParentCategory(parentId);
 
         return ProductDetailResponse.PnsInfo.builder()
                 .score(result.score())
@@ -286,6 +294,12 @@ public class ProductService {
 
     @Transactional
     public void updateProduct(Long productId, AdminProductUpdateRequest request) {
+        updateProduct(productId, request, null);
+    }
+
+    /** @param adminUserId 수정 이력에 남길 관리자 — 컨트롤러가 Actor 에서 넘긴다 */
+    @Transactional
+    public void updateProduct(Long productId, AdminProductUpdateRequest request, Long adminUserId) {
 
         Product product = productRepository.findById(productId)
                 .orElseThrow(() -> new CustomException(ErrorCode.RESOURCE_NOT_FOUND));
@@ -304,11 +318,50 @@ public class ProductService {
         String imageUrl  = request.getImageUrl()       != null ? request.getImageUrl()       : product.getImageUrl();
         BigDecimal score = request.getNutritionScore() != null ? request.getNutritionScore() : product.getNutritionScore();
 
+        // 수정 이력 (10.4) — 바뀐 필드만 「필드: 전 → 후」
+        List<String> changes = new ArrayList<>();
+        if (!Objects.equals(name, product.getName()))         changes.add("name: " + product.getName() + " → " + name);
+        if (!Objects.equals(imageUrl, product.getImageUrl())) changes.add("imageUrl: " + product.getImageUrl() + " → " + imageUrl);
+        if (request.getCategoryId() != null && (product.getCategory() == null || !request.getCategoryId().equals(product.getCategory().getId())))
+            changes.add("category: " + (product.getCategory() == null ? null : product.getCategory().getId()) + " → " + request.getCategoryId());
+        if (request.getBrandId() != null && (product.getBrand() == null || !request.getBrandId().equals(product.getBrand().getId())))
+            changes.add("brand: " + (product.getBrand() == null ? null : product.getBrand().getId()) + " → " + request.getBrandId());
+        String barcodeBefore = product.getBarcode();
+
         product.update(name, category, brand, imageUrl, score);
+
+        // 바코드 (3.1) — 빈 문자열은 제거, 값이 있으면 13자리 정규화(형식·체크섬 400), 다른 제품과 중복이면 409
+        if (request.getBarcode() != null) {
+            String raw = request.getBarcode().trim();
+            if (raw.isEmpty()) {
+                product.updateBarcode(null);
+            } else {
+                String normalized = BarcodeNormalizer.normalize(raw);
+                if (productRepository.existsByBarcodeAndIdNot(normalized, productId)) {
+                    throw new CustomException(ErrorCode.DUPLICATE_RESOURCE, "같은 바코드를 가진 다른 제품이 있습니다: " + normalized);
+                }
+                product.updateBarcode(normalized);
+            }
+        }
 
         if (request.getIsActive() != null) {
             if (request.getIsActive()) product.activate();
             else product.deactivate();
+        }
+
+        // 재적재 보호 (10.4): 적재가 덮어쓰는 데이터 필드(이름·이미지·분류·브랜드·바코드)를 고쳤으면 자동으로 켠다. 명시 지정이 있으면 그것을 따른다
+        if (!Objects.equals(barcodeBefore, product.getBarcode())) changes.add("barcode: " + barcodeBefore + " → " + product.getBarcode());
+        if (request.getManuallyCorrected() != null) {
+            if (request.getManuallyCorrected()) product.markManuallyCorrected();
+            else product.clearManualCorrection();
+            changes.add("manuallyCorrected: " + request.getManuallyCorrected());
+        } else if (!changes.isEmpty()) {
+            product.markManuallyCorrected();
+        }
+        if (!changes.isEmpty() || (request.getMemo() != null && !request.getMemo().isBlank())) {
+            String summary = String.join(" / ", changes);
+            if (request.getMemo() != null && !request.getMemo().isBlank()) summary = summary.isEmpty() ? request.getMemo().trim() : summary + " — " + request.getMemo().trim();
+            productChangeLogRepository.save(ProductChangeLog.create(productId, null, adminUserId, ProductChangeLog.Source.ADMIN_UPDATE, summary));
         }
     }
 
@@ -331,6 +384,7 @@ public class ProductService {
 
     @Transactional
     public void resetAll() {
+        entityManager.createNativeQuery("TRUNCATE TABLE product_grades").executeUpdate();   // 사전계산 등급 — products FK 가 없어 명시적으로 비운다
         entityManager.createNativeQuery("TRUNCATE TABLE user_favorites RESTART IDENTITY CASCADE").executeUpdate();
         entityManager.createNativeQuery("TRUNCATE TABLE review_images RESTART IDENTITY CASCADE").executeUpdate();
         entityManager.createNativeQuery("TRUNCATE TABLE reviews RESTART IDENTITY CASCADE").executeUpdate();
@@ -348,14 +402,14 @@ public class ProductService {
     // ── SCORE 정렬 전용 쿼리 ──────────────────────────────────────────────────────
 
     /**
-     * 비로그인 → nutrition_score(health_score) 기준 정렬
-     * 로그인   → product_pns_by_eer.score JOIN 후 사용자 goal 기준 정렬
+     * 목표별 사전계산 등급 점수(product_grades.score) JOIN 후 내림차순 — 로그인·비로그인 같은 조인, 목표만 다르다
+     * (비로그인·미설정은 GENERAL, 슬롯 0). 사전계산이 없는 제품(영양정보 부족)은 이 정렬에서 빠진다(구 동작과 동일).
      * 필터 조건(카테고리/브랜드/영양소 등)은 동적 WHERE절로 처리
      */
     @SuppressWarnings("unchecked")
-    private Page<Product> findAllOrderByPnsScore(ProductSearchRequest request,
-                                                 int eerBand, String goal, boolean isLoggedIn,
-                                                 List<Long> claimFilteredIds) {
+    private Page<Product> findAllOrderByGradeScore(ProductSearchRequest request,
+                                                   GoalType goal,
+                                                   List<Long> claimFilteredIds) {
         int page = request.getPage();
         int size = request.getSize();
 
@@ -449,24 +503,14 @@ public class ProductService {
                 ? "JOIN product_nutrients pn ON p.id = pn.product_id "
                 : "";
 
-        String orderBy;
-        String pnsJoin;
-        if (isLoggedIn) {
-            pnsJoin = "JOIN product_pns_by_eer pns ON p.id = pns.product_id AND pns.eer_band = :eerBand AND pns.goal = :goal ";
-            orderBy = "ORDER BY pns.score DESC NULLS LAST ";
-            params.put("eerBand", eerBand);
-            params.put("goal", goal);
-        } else {
-            // 비로그인: health goal 기준 pns.score로 정렬 (등급 기준과 일치)
-            pnsJoin = "JOIN product_pns_by_eer pns ON p.id = pns.product_id AND pns.eer_band = :eerBand AND pns.goal = :goal ";
-            orderBy = "ORDER BY pns.score DESC NULLS LAST ";
-            params.put("eerBand", eerBand);
-            params.put("goal", goal);
-        }
+        String gradeJoin = "JOIN product_grades pg ON p.id = pg.product_id AND pg.eer_band = :eerBand AND pg.goal = :goal ";
+        String orderBy = "ORDER BY pg.score DESC NULLS LAST ";
+        params.put("eerBand", EerBand.defaultSlot(goal));
+        params.put("goal", goal.name());
 
-        String sql = "SELECT p.* FROM products p " + pnsJoin + nutrientJoin + where + orderBy
+        String sql = "SELECT p.* FROM products p " + gradeJoin + nutrientJoin + where + orderBy
                 + "LIMIT :limit OFFSET :offset";
-        String countSql = "SELECT COUNT(*) FROM products p " + pnsJoin + nutrientJoin + where;
+        String countSql = "SELECT COUNT(*) FROM products p " + gradeJoin + nutrientJoin + where;
 
         params.put("limit", size);
         params.put("offset", (long) page * size);
@@ -808,7 +852,7 @@ public class ProductService {
 
     private ProductListResponse toListResponse(Product product, Long userId, String grade, Integer price) {
         boolean favorited = userId != null &&
-                userFavoriteRepository.existsByUserIdAndProductIdAndProductIsActiveTrue(userId, product.getId());
+                savedProductRepository.existsByUserIdAndProductIdAndProductIsActiveTrue(userId, product.getId());
 
         return ProductListResponse.builder()
                 .id(product.getId())
@@ -830,20 +874,26 @@ public class ProductService {
     }
 
     private ProductDetailResponse toDetailResponse(Product product, ProductNutrient nutrient,
-                                                   Long userId, CoupangLink coupangLink,
+                                                   CoupangLink coupangLink,
+                                                   ProductResultService.ProductResult result,
                                                    ProductDetailResponse.PnsInfo pnsInfo,
                                                    ProductDetailResponse.NutrientBounds nutrientBounds) {
-        boolean favorited = userId != null &&
-                userFavoriteRepository.existsByUserIdAndProductIdAndProductIsActiveTrue(userId, product.getId());
-
         return ProductDetailResponse.builder()
+                // 2차 결과 화면 블록 (API 명세)
+                .status(result.status().name())
+                .product(result.product())
+                .nutrition(result.nutrition())
+                .grade(result.grade())
+                .topReason(result.topReason())
+                .appliedGoal(result.appliedGoal().name())
+                .saved(result.saved())
+                // 1차 웹 호환 블록 (deprecated — 2차 화면 전환 후 제거)
                 .id(product.getId())
                 .name(product.getName())
                 .imageUrl(product.getImageUrl())
                 .nutritionScore(product.getNutritionScore())
-                .grade(pnsInfo != null ? pnsInfo.getGrade() : null)
                 .viewCount(product.getViewCount())
-                .isFavorited(favorited)
+                .isFavorited(result.saved())
                 .scoreRankPercent(null)
                 .brand(product.getBrand() == null ? null : ProductDetailResponse.BrandInfo.builder()
                         .id(product.getBrand().getId())
@@ -853,7 +903,7 @@ public class ProductService {
                         .id(product.getCategory().getId())
                         .name(product.getCategory().getName())
                         .build())
-                .nutrients(ProductDetailResponse.NutrientInfo.builder()
+                .nutrients(nutrient == null ? null : ProductDetailResponse.NutrientInfo.builder()
                         .servingSize(nutrient.getServingSize())
                         .calories(nutrient.getCalories())
                         .carbohydrate(nutrient.getCarbohydrate())

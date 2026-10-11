@@ -1,0 +1,75 @@
+-- ============================================================================
+-- feat/ranking-commerce — 수동 실행 SQL (필수 없음 · 권장 1건 · 팀 결정 후 시드 템플릿)
+--
+-- Hibernate(ddl-auto=update)가 부팅 시 만드는 것:
+--   ranking_categories, ranking_category_mappings, category_rankings, ranking_category_stats   (랭킹, 6.3)
+--   link_resolves, link_resolve_feedbacks                                                        (링크 인식)
+--   coupang_links.match_type                                                                     (구매 링크 8.1, 수동 지정용 nullable)
+--   product_reports, product_change_logs, products.manually_corrected(default false)·corrected_at (오류 제보 10.4)
+-- 부팅 시 앱이 스스로: 선정 기준 문구(grade_copies RANKING_*) 시드, 서비스 분류가 있는데 배치 결과가 없으면 초기 적재.
+-- 따라서 배포만으로 동작한다. 랭킹은 서비스 분류가 비어 있으면 「열린 분류 없음」(빈 목록)으로 정상 동작한다.
+-- ============================================================================
+
+-- [권장 · 배포 후] products.category_id 인덱스 — 랭킹 배치·데이터 현황 대시보드가 분류로 조인한다. FK 만 있고 인덱스가 없으면 37만 건 순차 스캔.
+CREATE INDEX IF NOT EXISTS idx_products_category_id ON products (category_id);
+
+-- ── 랭킹 (6.3) — 서비스용 분류 체계는 팀 결정 대기 ─────────────────────────────────────────────────────────
+-- 공공 분류(categories)를 그대로 쓰지 않는다. 결정되면 아래 두 INSERT 로 넣고, POST /admin/rankings/rebuild 를 부르거나 04:00 을 기다린다.
+-- 매핑은 하위 분류를 자동 포함하고, 상위·하위가 다른 서비스 분류에 매핑되면 하위(더 가까운) 매핑이 이긴다.
+--
+-- ① 서비스 분류
+-- INSERT INTO ranking_categories (name, display_order, is_default, is_active, created_at) VALUES
+--     ('단백질 음료', 1, TRUE,  TRUE, now()),
+--     ('단백질 바',   2, FALSE, TRUE, now()),
+--     ('초콜릿',      3, FALSE, TRUE, now())
+-- ON CONFLICT (name) DO NOTHING;
+--
+-- ② 매핑 — 공공 분류 이름으로 (depth 1 = 대분류, 2 = 중분류). 한 categories 행은 한 서비스 분류에만 속한다(UNIQUE)
+-- INSERT INTO ranking_category_mappings (ranking_category_id, category_id, created_at)
+-- SELECT rc.id, c.id, now()
+-- FROM   ranking_categories rc, categories c
+-- WHERE  rc.name = '단백질 음료' AND c.depth = 2 AND c.name IN ('단백질 음료류', '유단백 음료')
+-- ON CONFLICT (category_id) DO NOTHING;
+--
+-- [확인] 후보 분류가 게이트(분석 완료 300건 + A·D 각 1건, 일반 기준)를 넘는지 — 매핑 전에 공공 분류 단위로 미리 본다
+-- SELECT c.id, c.depth, c.name,
+--        COUNT(p.id)                                        AS total,
+--        COUNT(p.id) FILTER (WHERE p.status = 'ANALYZED')   AS analyzed,
+--        COUNT(pg.product_id) FILTER (WHERE pg.grade = 'A') AS a_cnt,
+--        COUNT(pg.product_id) FILTER (WHERE pg.grade = 'D') AS d_cnt
+-- FROM   categories c
+-- LEFT JOIN products p ON p.category_id = c.id AND p.is_active
+-- LEFT JOIN product_grades pg ON pg.product_id = p.id AND pg.goal = 'GENERAL' AND pg.eer_band = 0
+-- GROUP BY c.id, c.depth, c.name
+-- HAVING COUNT(p.id) FILTER (WHERE p.status = 'ANALYZED') >= 300
+-- ORDER BY analyzed DESC;
+--
+-- [확인] 배치 결과 — 분류별 게이트·순위 수 (GET /admin/rankings/categories 와 같은 내용)
+-- SELECT rc.name, s.total_count, s.analyzed_count, s.a_count, s.d_count, s.gate_passed, s.ranked_rows, s.computed_at
+-- FROM   ranking_categories rc LEFT JOIN ranking_category_stats s ON s.ranking_category_id = rc.id
+-- WHERE  rc.is_active ORDER BY rc.display_order;
+--
+-- [설정] 분류당 저장 순위 상한: app.ranking.max-rank (기본 200). 선정 기준 문구: grade_copies 의 copy_code LIKE 'RANKING_%' (DB 에서 바로 수정)
+
+-- ── 구매 링크 (8.1) ──────────────────────────────────────────────────────────────────────────────────────
+-- 자동 판정은 보수적이다: 쿠팡 상품명(수량·용량 토막 제거)이 우리 제품명과 정규화 후 같을 때만 EXACT, 아니면 NAME_SEARCH(가격 미노출).
+-- 관리자가 「정확히 같은 제품」임을 확인한 링크만 수동으로 EXACT 지정 — 그때부터 24시간 이내 조회 가격이 노출된다.
+-- UPDATE coupang_links SET match_type = 'EXACT' WHERE product_id = 12345 AND link_status = 'LINKED';
+-- UPDATE coupang_links SET match_type = NULL    WHERE product_id = 12345;      -- 자동 판정으로 되돌리기
+
+-- ── 오류 제보 (10.4) ─────────────────────────────────────────────────────────────────────────────────────
+-- [확인] 재적재 보호 중인 제품 — 엑셀 업로드가 이 행들을 건너뛴다(로그 [ExcelUpload] 수동 수정 보호 제품)
+-- SELECT id, name, corrected_at FROM products WHERE manually_corrected ORDER BY corrected_at DESC;
+--
+-- 보호 해제는 API 로: PATCH /admin/products/{id}  {"manuallyCorrected": false}   (SQL 로 하면 이력이 남지 않는다)
+--
+-- [확인] 최근 처리 대기 제보
+-- SELECT r.id, r.report_type, p.name, r.content, r.created_at FROM product_reports r JOIN products p ON p.id = r.product_id
+-- WHERE  r.status IN ('RECEIVED', 'PROCESSING') ORDER BY r.created_at DESC LIMIT 50;
+
+-- ── 링크 인식 ────────────────────────────────────────────────────────────────────────────────────────────
+-- [확인] 매칭 방법별 성공률 (최근 7일) — 정확도 개선 근거
+-- SELECT match_method, COUNT(*) FROM link_resolves WHERE created_at >= now() - interval '7 days' GROUP BY match_method ORDER BY 2 DESC;
+-- [정리 · 선택] 만료된 캐시 행 — 자동 삭제는 없다(작은 표). 필요하면 주기적으로
+-- DELETE FROM link_resolves WHERE expires_at < now() - interval '30 days'
+--   AND NOT EXISTS (SELECT 1 FROM link_resolve_feedbacks f WHERE f.resolve_id = link_resolves.id);

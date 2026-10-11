@@ -8,6 +8,8 @@ import com.example.nutriuniv.domain.category.entity.Category;
 import com.example.nutriuniv.domain.category.repository.CategoryRepository;
 import com.example.nutriuniv.domain.product.entity.Product;
 import com.example.nutriuniv.domain.product.entity.ProductNutrient;
+import com.example.nutriuniv.domain.product.entity.ProductStatus;
+import com.example.nutriuniv.domain.product.util.BarcodeNormalizer;
 import com.example.nutriuniv.domain.product.repository.ProductNutrientRepository;
 import com.example.nutriuniv.domain.product.repository.ProductRepository;
 import lombok.RequiredArgsConstructor;
@@ -59,9 +61,26 @@ public class ProductExcelRowService {
                 categoryRepository.findByNameAndDepthAndParent(depth2Name, 2, depth1)
                         .orElseGet(() -> categoryRepository.save(Category.createDepth2(depth2Name, depth1))));
 
-        Product product = productRepository.findByName(productName)
-                .orElseGet(() -> productRepository.save(Product.create(productName, depth2, brand)));
+        // 수동 수정 보호 (10.4) — 관리자가 고친 제품은 재적재가 덮어쓰지 않는다. 행 전체(분류·브랜드·바코드·영양성분)를 건너뛴다
+        Product existing = productRepository.findByName(productName).orElse(null);
+        if (existing != null && existing.isManuallyCorrected()) {
+            log.info("[ExcelUpload] 수동 수정 보호 제품 — 행 건너뜀: {} (id={})", productName, existing.getId());
+            return;
+        }
+        Product product = existing != null ? existing : productRepository.save(Product.create(productName, depth2, brand));
         product.update(depth2, brand);
+
+        // 바코드 (선택 열) — 13자리 정규화 저장 (3.1). 형식·체크섬 오류나 다른 제품과 중복이면 행은 살리고 바코드만 건너뛴다
+        String rawBarcode = values.getOrDefault("barcode", "").trim();
+        if (!rawBarcode.isEmpty()) {
+            BarcodeNormalizer.tryNormalize(rawBarcode).ifPresentOrElse(code -> {
+                if (productRepository.existsByBarcodeAndIdNot(code, product.getId())) {
+                    log.warn("[ExcelUpload] 바코드 중복으로 건너뜀 — product={} barcode={}", product.getName(), code);
+                } else {
+                    product.updateBarcode(code);
+                }
+            }, () -> log.warn("[ExcelUpload] 바코드 형식/체크섬 오류로 건너뜀 — product={} raw={}", product.getName(), rawBarcode));
+        }
 
         ProductNutrient nutrient = productNutrientRepository.findById(product.getId())
                 .orElseGet(() -> ProductNutrient.create(product));
@@ -90,16 +109,18 @@ public class ProductExcelRowService {
                 parseNutrient(values.get("fiberPer100g"))
         );
         productNutrientRepository.save(nutrient);
+        product.updateStatus(ProductStatus.of(nutrient));   // 분석 완료 판정(4.1) — 등급 배치·검색 정렬이 읽는다
     }
 
+    /** 빈 셀·숫자 아님은 결측(null) — 0 으로 채우면 「영양정보 부족」 판정(4.1)이 불가능해진다. */
     private BigDecimal parseNutrient(String raw) {
-        if (raw == null || raw.isBlank()) return BigDecimal.ZERO;
+        if (raw == null || raw.isBlank()) return null;
         String numOnly = raw.replaceAll("[^0-9.]", "").trim();
-        if (numOnly.isEmpty()) return BigDecimal.ZERO;
+        if (numOnly.isEmpty()) return null;
         try {
             return new BigDecimal(numOnly);
         } catch (NumberFormatException e) {
-            return BigDecimal.ZERO;
+            return null;
         }
     }
 }

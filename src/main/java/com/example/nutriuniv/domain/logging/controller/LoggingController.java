@@ -1,20 +1,20 @@
 package com.example.nutriuniv.domain.logging.controller;
 
 import com.example.nutriuniv.common.response.CommonResponse;
-import com.example.nutriuniv.common.security.UserPrincipal;
+import com.example.nutriuniv.common.security.Actor;
 import com.example.nutriuniv.domain.logging.dto.CtaLogRequest;
 import com.example.nutriuniv.domain.logging.dto.FilterLogRequest;
 import com.example.nutriuniv.domain.logging.dto.ImpressionLogRequest;
 import com.example.nutriuniv.domain.logging.dto.LogContext;
+import com.example.nutriuniv.domain.logging.dto.OnboardingStepLogRequest;
+import com.example.nutriuniv.domain.logging.dto.ScanEventLogRequest;
 import com.example.nutriuniv.domain.logging.dto.SearchLogRequest;
 import com.example.nutriuniv.domain.logging.dto.ViewLogRequest;
 import com.example.nutriuniv.domain.logging.service.LoggingService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
@@ -24,10 +24,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RequiredArgsConstructor
 public class LoggingController {
 
-    // 클라이언트 식별 헤더 (localStorage UUID / 세션 / 코호트)
-    private static final String HEADER_ANONYMOUS_ID = "X-Anonymous-Id";
-    private static final String HEADER_SESSION_ID = "X-Session-Id";
-    private static final String HEADER_COHORT = "X-Cohort";
+    // 클라이언트 식별(X-Anonymous-Id / X-Session-Id / X-Cohort)·IP 해석은 ActorArgumentResolver 가 담당
 
     private final LoggingService loggingService;
 
@@ -37,12 +34,8 @@ public class LoggingController {
                     "X-Anonymous-Id / X-Session-Id / X-Cohort 헤더로 비로그인 재방문을 추적합니다. " +
                     "로그 저장 실패 시에도 200을 반환합니다. 비로그인 시 user_id는 null로 저장됩니다.")
     @PostMapping("/logging/view")
-    public ResponseEntity<CommonResponse<Void>> logView(
-            @AuthenticationPrincipal UserPrincipal principal,
-            @RequestBody ViewLogRequest request,
-            HttpServletRequest httpServletRequest) {
-
-        loggingService.logProductView(request, resolveContext(principal, httpServletRequest));
+    public ResponseEntity<CommonResponse<Void>> logView(Actor actor, @RequestBody ViewLogRequest request) {
+        loggingService.logProductView(request, LogContext.from(actor));
         return ResponseEntity.ok(CommonResponse.success(null));
     }
 
@@ -52,12 +45,8 @@ public class LoggingController {
                     "로그인 유저는 동일 상품 1시간 내 중복 클릭을 무시합니다. " +
                     "로그 저장 실패 시에도 200을 반환합니다. 비로그인 시 user_id는 null로 저장됩니다.")
     @PostMapping("/logging/cta")
-    public ResponseEntity<CommonResponse<Void>> logCta(
-            @AuthenticationPrincipal UserPrincipal principal,
-            @RequestBody CtaLogRequest request,
-            HttpServletRequest httpServletRequest) {
-
-        loggingService.logProductCta(request, resolveContext(principal, httpServletRequest));
+    public ResponseEntity<CommonResponse<Void>> logCta(Actor actor, @RequestBody CtaLogRequest request) {
+        loggingService.logProductCta(request, LogContext.from(actor));
         return ResponseEntity.ok(CommonResponse.success(null));
     }
 
@@ -67,12 +56,8 @@ public class LoggingController {
                     "keyword가 빈 문자열이면 400을 반환합니다. " +
                     "로그 저장 실패 시에도 200을 반환합니다. 비로그인 시 user_id는 null로 저장됩니다.")
     @PostMapping("/logging/search")
-    public ResponseEntity<CommonResponse<Void>> logSearch(
-            @AuthenticationPrincipal UserPrincipal principal,
-            @RequestBody SearchLogRequest request,
-            HttpServletRequest httpServletRequest) {
-
-        loggingService.logSearch(request, resolveContext(principal, httpServletRequest));
+    public ResponseEntity<CommonResponse<Void>> logSearch(Actor actor, @RequestBody SearchLogRequest request) {
+        loggingService.logSearch(request, LogContext.from(actor));
         return ResponseEntity.ok(CommonResponse.success(null));
     }
 
@@ -82,12 +67,8 @@ public class LoggingController {
                     "filter_type이 빈 문자열이면 400을 반환합니다. " +
                     "로그 저장 실패 시에도 200을 반환합니다. 비로그인 시 user_id는 null로 저장됩니다.")
     @PostMapping("/logging/filter")
-    public ResponseEntity<CommonResponse<Void>> logFilter(
-            @AuthenticationPrincipal UserPrincipal principal,
-            @RequestBody FilterLogRequest request,
-            HttpServletRequest httpServletRequest) {
-
-        loggingService.logFilter(request, resolveContext(principal, httpServletRequest));
+    public ResponseEntity<CommonResponse<Void>> logFilter(Actor actor, @RequestBody FilterLogRequest request) {
+        loggingService.logFilter(request, LogContext.from(actor));
         return ResponseEntity.ok(CommonResponse.success(null));
     }
 
@@ -98,39 +79,30 @@ public class LoggingController {
                     "추천 모델의 음성 샘플로 사용됩니다. 유효 방문에는 포함되지 않으며, " +
                     "세션 내 동일 상품 중복은 무시됩니다. 로그 저장 실패 시에도 200을 반환합니다.")
     @PostMapping("/logging/impression")
-    public ResponseEntity<CommonResponse<Void>> logImpression(
-            @AuthenticationPrincipal UserPrincipal principal,
-            @RequestBody ImpressionLogRequest request,
-            HttpServletRequest httpServletRequest) {
-
-        loggingService.logImpressions(request, resolveContext(principal, httpServletRequest));
+    public ResponseEntity<CommonResponse<Void>> logImpression(Actor actor, @RequestBody ImpressionLogRequest request) {
+        loggingService.logImpressions(request, LogContext.from(actor));
         return ResponseEntity.ok(CommonResponse.success(null));
     }
 
-    // ── 공통 컨텍스트/IP 해석 ───────────────────────────────────────────────────────
-
-    private LogContext resolveContext(UserPrincipal principal, HttpServletRequest request) {
-        Long userId = principal != null ? principal.getId() : null;
-        String anonymousId = trimToNull(request.getHeader(HEADER_ANONYMOUS_ID));
-        String sessionId = trimToNull(request.getHeader(HEADER_SESSION_ID));
-        String cohort = LogContext.normalizeCohort(request.getHeader(HEADER_COHORT));
-        String ipAddress = resolveClientIp(request);
-        return new LogContext(anonymousId, sessionId, cohort, userId, ipAddress);
+    // POST /logging/scan-event
+    @Operation(summary = "스캔 실패 이벤트 기록 (기능명세서 9.1 신규)",
+            description = "result: SCAN_FAIL(인식 실패) | NOT_IN_DATA(인식됐는데 데이터에 없음) | CHECKSUM_FAIL | PERMISSION_DENIED — " +
+                    "원인별로 분리 적재합니다. barcode 는 NOT_IN_DATA·CHECKSUM_FAIL 일 때만 저장, surface 는 화면 식별자(선택). " +
+                    "fire-and-forget: 저장 실패해도 200. 허용값 외 result 는 400. 유효 방문으로 집계되지 않습니다.")
+    @PostMapping("/logging/scan-event")
+    public ResponseEntity<CommonResponse<Void>> logScanEvent(Actor actor, @RequestBody ScanEventLogRequest request) {
+        loggingService.logScanEvent(request, LogContext.from(actor));
+        return ResponseEntity.ok(CommonResponse.success(null));
     }
 
-    private String resolveClientIp(HttpServletRequest request) {
-        String ip = request.getHeader("X-Forwarded-For");
-        if (ip == null || ip.isBlank()) {
-            return request.getRemoteAddr();
-        }
-        return ip.split(",")[0].trim();
-    }
-
-    private String trimToNull(String value) {
-        if (value == null) {
-            return null;
-        }
-        String trimmed = value.trim();
-        return trimmed.isEmpty() ? null : trimmed;
+    // POST /logging/onboarding-step
+    @Operation(summary = "온보딩 단계 이벤트 기록",
+            description = "step: CONSENT|CAMERA|START|PICKER|SCAN|FIRST_RESULT|GOAL|DONE, action: VIEW|ACCEPT|SKIP. " +
+                    "PICKER 는 reason 에 진입 이유(NO_ITEM|SCAN_FAIL|NOT_IN_DATA|PERMISSION_DENIED|PC). fire-and-forget: 저장 실패해도 200, 허용값 외 400. " +
+                    "세션 ID 선택 — 동의 전에는 세션 단위로만 남습니다. 3회 이탈 카운트는 클라 localStorage.")
+    @PostMapping("/logging/onboarding-step")
+    public ResponseEntity<CommonResponse<Void>> logOnboardingStep(Actor actor, @RequestBody OnboardingStepLogRequest request) {
+        loggingService.logOnboardingStep(request, LogContext.from(actor));
+        return ResponseEntity.ok(CommonResponse.success(null));
     }
 }
