@@ -1,11 +1,10 @@
 -- ============================================================================
 -- chore/db-schema-v2 — 2차 서버는 v2 스키마에 새로 쌓는다(기존 public 테이블은 손대지 않고 보존)
 --
--- [배포 전] GitHub 시크릿 SPRING_DATASOURCE_URL 끝에 ?currentSchema=v2,public 를 붙인다
---   (URL 에 이미 ? 가 있으면 &currentSchema=v2,public).
---   · v2     = 2차 테이블이 생기고 읽히는 곳. 네이티브 SQL 도 v2 를 먼저 찾는다
---   · public = pg_trgm 함수(similarity·gin_trgm_ops)가 설치된 곳. 빼면 검색이 'function does not exist' 로 실패
---   deploy.yml 의 hibernate.default_schema=v2 · hbm2ddl.create_namespaces=true 로 첫 부팅 때 v2 스키마와 테이블이 자동 생성된다.
+-- [설정] deploy.yml(application-prod.properties) 에 들어 있다 — 시크릿 수정 불필요
+--   · hibernate.default_schema=v2 · hbm2ddl.create_namespaces=true → 첫 부팅 때 v2 스키마와 테이블 자동 생성, JPA 쿼리는 v2
+--   · hikari.connection-init-sql=SET search_path TO v2, public → 스키마 없이 쓴 네이티브 SQL(검색·랭킹·대시보드)도 v2 를 먼저 본다
+--     public 은 pg_trgm 함수(similarity·gin_trgm_ops)가 설치된 곳. 빼면 검색이 'function does not exist' 로 실패
 --
 -- [배포 후] 앱이 한 번 부팅해 v2 에 테이블이 생긴 뒤 이 파일을 실행한다.
 --   02~08 수동 SQL 은 기존 public 기준이라 그대로 돌리지 말 것 — search_path 없이 돌리면 보존 중인 public 테이블이 바뀐다.
