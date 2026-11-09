@@ -4,9 +4,7 @@ import com.example.nutriuniv.common.response.CommonResponse;
 import com.example.nutriuniv.common.security.Actor;
 import com.example.nutriuniv.domain.logging.dto.CtaLogRequest;
 import com.example.nutriuniv.domain.logging.dto.FilterLogRequest;
-import com.example.nutriuniv.domain.logging.dto.ImpressionLogRequest;
 import com.example.nutriuniv.domain.logging.dto.LogContext;
-import com.example.nutriuniv.domain.logging.dto.OnboardingStepLogRequest;
 import com.example.nutriuniv.domain.logging.dto.ScanEventLogRequest;
 import com.example.nutriuniv.domain.logging.dto.SearchLogRequest;
 import com.example.nutriuniv.domain.logging.dto.ViewLogRequest;
@@ -72,18 +70,6 @@ public class LoggingController {
         return ResponseEntity.ok(CommonResponse.success(null));
     }
 
-    // POST /logging/impression
-    @Operation(summary = "상품 노출 로그 기록 (impression)",
-            description = "목록/추천/검색 결과에 상품이 보여졌을 때 클라이언트가 호출합니다. " +
-                    "한 화면에 보인 상품들을 items 배열로 배치 전송합니다(surface: LIST/RECOMMENDATION/SEARCH). " +
-                    "추천 모델의 음성 샘플로 사용됩니다. 유효 방문에는 포함되지 않으며, " +
-                    "세션 내 동일 상품 중복은 무시됩니다. 로그 저장 실패 시에도 200을 반환합니다.")
-    @PostMapping("/logging/impression")
-    public ResponseEntity<CommonResponse<Void>> logImpression(Actor actor, @RequestBody ImpressionLogRequest request) {
-        loggingService.logImpressions(request, LogContext.from(actor));
-        return ResponseEntity.ok(CommonResponse.success(null));
-    }
-
     // POST /logging/scan-event
     @Operation(summary = "스캔 실패 이벤트 기록 (기능명세서 9.1 신규)",
             description = "result: SCAN_FAIL(인식 실패) | NOT_IN_DATA(인식됐는데 데이터에 없음) | CHECKSUM_FAIL | PERMISSION_DENIED — " +
@@ -95,14 +81,5 @@ public class LoggingController {
         return ResponseEntity.ok(CommonResponse.success(null));
     }
 
-    // POST /logging/onboarding-step
-    @Operation(summary = "온보딩 단계 이벤트 기록",
-            description = "step: CONSENT|CAMERA|START|PICKER|SCAN|FIRST_RESULT|GOAL|DONE, action: VIEW|ACCEPT|SKIP. " +
-                    "PICKER 는 reason 에 진입 이유(NO_ITEM|SCAN_FAIL|NOT_IN_DATA|PERMISSION_DENIED|PC). fire-and-forget: 저장 실패해도 200, 허용값 외 400. " +
-                    "세션 ID 선택 — 동의 전에는 세션 단위로만 남습니다. 3회 이탈 카운트는 클라 localStorage.")
-    @PostMapping("/logging/onboarding-step")
-    public ResponseEntity<CommonResponse<Void>> logOnboardingStep(Actor actor, @RequestBody OnboardingStepLogRequest request) {
-        loggingService.logOnboardingStep(request, LogContext.from(actor));
-        return ResponseEntity.ok(CommonResponse.success(null));
-    }
+    // POST /logging/impression, /logging/onboarding-step — v3 에서 뺐다(노출 로그 폐기, 예시 제품 온보딩 폐기)
 }

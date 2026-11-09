@@ -26,7 +26,7 @@ import java.util.Optional;
 
 /**
  * 제품 저장 (기능명세서 7.1) — 구 LikeService 개조.
- * 바뀐 규칙: 익명 소유 지원(user XOR anonymous), 재저장·미존재 해제 모두 200 멱등, 상한 200(409), 동의 전 403 CONSENT_REQUIRED.
+ * 바뀐 규칙: 익명 소유 지원(user XOR anonymous), 재저장·미존재 해제 모두 200 멱등, 상한 200(409), 기기 ID 없음 400 ANONYMOUS_ID_REQUIRED(동의는 필요 없음).
  */
 @Service
 @RequiredArgsConstructor
@@ -86,7 +86,7 @@ public class SavedProductService {
 
     @Transactional
     public SaveResultResponse save(Actor actor, Long productId) {
-        Owner owner = ownerResolver.resolve(actor);                        // 동의 전 → 403, 클라가 동의 후 이어감
+        Owner owner = ownerResolver.resolve(actor);                        // 기기 ID 없음 → 400
         Product product = productRepository.findById(productId)
                 .filter(Product::isActive)
                 .orElseThrow(() -> new CustomException(ErrorCode.PRODUCT_NOT_FOUND));

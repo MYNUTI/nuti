@@ -6,6 +6,10 @@
 --   · hikari.connection-init-sql=SET search_path TO v2, public → 스키마 없이 쓴 네이티브 SQL(검색·랭킹·대시보드)도 v2 를 먼저 본다
 --     public 은 pg_trgm 함수(similarity·gin_trgm_ops)가 설치된 곳. 빼면 검색이 'function does not exist' 로 실패
 --
+-- [첫 부팅 전] 새 DB(RDS 등)에는 pgvector 를 먼저 켠다 — products.nutrient_vector 가 vector(10) 이라 없으면 products 표가 안 만들어진다.
+--   CREATE EXTENSION IF NOT EXISTS vector;
+--   로컬 도커는 pgvector 가 든 이미지(pgvector/pgvector:pg18 등)를 써야 한다.
+--
 -- [배포 후] 앱이 한 번 부팅해 v2 에 테이블이 생긴 뒤 이 파일을 실행한다.
 --   02~08 수동 SQL 은 기존 public 기준이라 그대로 돌리지 말 것 — search_path 없이 돌리면 보존 중인 public 테이블이 바뀐다.
 --   v2 에 필요한 것만 아래에 모았다. 새 스키마는 엔티티대로 만들어져 NOT NULL 해제(02·05)는 필요 없다.

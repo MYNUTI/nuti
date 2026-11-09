@@ -10,7 +10,7 @@ import java.time.LocalDateTime;
 
 /**
  * 접수 개별 기록 — 일일 한도(검색어 접수 하루 5건 → 429) 계산과 마이 화면 기여 집계(recordCount·contribution)용.
- * 소유자는 user_id XOR anonymous_id, 동의 전 사용자는 session_id 만. 셋 다 없으면 한도를 셀 수 없어 기록만 남긴다.
+ * 소유자는 user_id XOR anonymous_id, 기기 ID 헤더가 없는 요청은 session_id 만. 셋 다 없으면 한도를 셀 수 없어 기록만 남긴다.
  */
 @Entity
 @Table(name = "analysis_request_events",

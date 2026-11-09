@@ -7,6 +7,6 @@ import java.util.Optional;
 
 public interface AnonymousUserRepository extends JpaRepository<AnonymousUser, Long> {
 
-    // 헤더 X-Anonymous-Id → 발급된 익명 사용자 (없으면 서버가 발급한 적 없는 값)
+    // 기기 익명 ID → 계정 연결 기록 (없으면 아직 로그인으로 옮긴 적 없는 기기)
     Optional<AnonymousUser> findByAnonymousId(String anonymousId);
 }

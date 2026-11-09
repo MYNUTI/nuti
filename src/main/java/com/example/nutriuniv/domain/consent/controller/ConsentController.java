@@ -27,9 +27,8 @@ public class ConsentController {
 
     // POST /onboarding/consent
     @Operation(summary = "개인정보 수집·이용 동의 (기능명세서 1.2)",
-            description = "여기서 익명 ID를 새로 발급해 반환합니다(진입 시 발급 없음). 클라이언트는 localStorage에 저장 후 " +
-                    "이후 요청에 X-Anonymous-Id 헤더로 보냅니다. 같은 버전 재요청은 200 멱등(기존 ID 반환). " +
-                    "필수 항목 누락 400, 정책 버전 불일치 409 POLICY_VERSION_CONFLICT. 동의 기록은 append-only, IP는 해시만 저장.")
+            description = "로그인 필수(없으면 401). 계정에 처리방침 동의를 남깁니다. 익명 ID 는 발급하지 않습니다 — v3 부터 기기가 만들고 동의 없이 씁니다. " +
+                    "같은 버전 재요청은 200 멱등. 필수 항목 누락 400, 정책 버전 불일치 409 POLICY_VERSION_CONFLICT. 동의 기록은 append-only, IP는 해시만 저장.")
     @PostMapping("/onboarding/consent")
     public ResponseEntity<CommonResponse<ConsentResponse>> consentPrivacy(
             Actor actor,
@@ -41,8 +40,7 @@ public class ConsentController {
 
     // POST /me/health-consent
     @Operation(summary = "건강정보 수집·이용 동의 (기능명세서 1.3)",
-            description = "X-Anonymous-Id 또는 Bearer 필수 — 둘 다 없으면 403 CONSENT_REQUIRED. " +
-                    "개인정보 동의와 저장 위치를 분리합니다. 감량·근육증가 목표 설정의 전제입니다.")
+            description = "로그인 필수(없으면 401). 개인정보 동의와 저장 위치를 분리합니다.")
     @PostMapping("/me/health-consent")
     public ResponseEntity<CommonResponse<HealthConsentResponse>> agreeHealth(
             Actor actor,
@@ -54,7 +52,7 @@ public class ConsentController {
 
     // GET /me/health-consent
     @Operation(summary = "건강정보 동의 조회",
-            description = "「동의 안 함」은 오류가 아니라 healthConsented=false 인 정상 응답입니다(일반 모드 계속).")
+            description = "로그인 필수(없으면 401). 「동의 안 함」은 오류가 아니라 healthConsented=false 인 정상 응답입니다.")
     @GetMapping("/me/health-consent")
     public ResponseEntity<CommonResponse<HealthConsentResponse>> getHealth(Actor actor) {
         return ResponseEntity.ok(CommonResponse.success(consentService.getHealth(actor)));
@@ -62,7 +60,7 @@ public class ConsentController {
 
     // DELETE /me/health-consent
     @Operation(summary = "건강정보 동의 철회",
-            description = "철회 기록을 남기고(append-only) 건강정보 플래그를 내립니다. 목표는 GENERAL로 되돌아갑니다. 이미 철회 상태면 200 멱등.")
+            description = "로그인 필수(없으면 401). 철회 기록을 남기고(append-only) 건강정보 플래그를 내립니다. 목표는 GENERAL로 되돌아갑니다. 이미 철회 상태면 200 멱등.")
     @DeleteMapping("/me/health-consent")
     public ResponseEntity<CommonResponse<HealthConsentResponse>> revokeHealth(
             Actor actor,

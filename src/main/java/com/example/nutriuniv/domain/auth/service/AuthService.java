@@ -7,13 +7,11 @@ import com.example.nutriuniv.common.security.JwtService;
 import com.example.nutriuniv.domain.auth.client.OAuthClient;
 import com.example.nutriuniv.domain.auth.client.OAuthClientFactory;
 import com.example.nutriuniv.domain.auth.client.OAuthUserInfo;
-import com.example.nutriuniv.domain.auth.dto.LogoutResponse;
 import com.example.nutriuniv.domain.auth.dto.OAuthLoginRequest;
 import com.example.nutriuniv.domain.auth.dto.RefreshRequest;
 import com.example.nutriuniv.domain.auth.dto.TokenResponse;
 import com.example.nutriuniv.domain.auth.entity.AuthToken;
 import com.example.nutriuniv.domain.auth.repository.AuthTokenRepository;
-import com.example.nutriuniv.domain.consent.service.ConsentService;
 import com.example.nutriuniv.domain.user.entity.User;
 import com.example.nutriuniv.domain.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -29,8 +27,8 @@ import java.util.Optional;
  * <ul>
  *   <li>신규회원도 즉시 가입 + 토큰 — 등록 단계(/auth/register) 폐지. 이메일 외 프로필은 받지 않는다</li>
  *   <li>is_active=false(탈퇴) 유저는 신규회원으로 처리 (재가입 정책은 팀 결정 대기 — 기존 동작 유지)</li>
- *   <li>헤더 X-Anonymous-Id 가 있으면 저장·목표·기여를 계정으로 병합해 mergedRecordCount 로 돌려준다 — 한 트랜잭션</li>
- *   <li>로그아웃은 refresh 토큰을 유저 단위로 전부 지우고 새 익명 ID 를 발급한다(병합된 옛 ID 는 더 못 쓴다)</li>
+ *   <li>헤더 X-Anonymous-Id(기기 ID)가 있으면 저장·목표·기여를 계정으로 병합해 mergedRecordCount 로 돌려준다 — 한 트랜잭션</li>
+ *   <li>로그아웃은 refresh 토큰을 유저 단위로 전부 지운다. 새 기기 ID 는 기기가 만든다(서버는 발급하지 않는다)</li>
  * </ul>
  */
 @Slf4j
@@ -43,7 +41,6 @@ public class AuthService {
     private final JwtService jwtService;
     private final OAuthClientFactory oAuthClientFactory;
     private final AnonymousMergeService anonymousMergeService;
-    private final ConsentService consentService;
 
     // ── POST /auth/oauth ──────────────────────────────────────────────────────────
 
@@ -66,7 +63,7 @@ public class AuthService {
         boolean newUser = existing.isEmpty();
         User user = existing.orElseGet(() -> register(provider, userInfo));
 
-        // 7.2 병합 — 저장·목표·기여(+동의·온보딩 상태). 미발급·이미 병합된 ID 는 무시하고 로그인만
+        // ACCT_005 병합 — 저장·목표·기여. 기기 ID 가 없으면 로그인만
         AnonymousMergeService.MergeResult merged = anonymousMergeService.merge(actor.anonymousId(), user);
 
         return issueToken(user, newUser, merged.total());
@@ -107,15 +104,13 @@ public class AuthService {
 
     // ── POST /auth/logout ─────────────────────────────────────────────────────────
 
-    /** 토큰 필수(본인). 유저 단위 refresh 토큰 전체 삭제 + 새 익명 ID 발급·반환. */
+    /** 토큰 필수(본인). 유저 단위 refresh 토큰 전체 삭제. */
     @Transactional
-    public LogoutResponse logout(Actor actor) {
+    public void logout(Actor actor) {
         if (!actor.isLoggedIn()) {
             throw new CustomException(ErrorCode.UNAUTHORIZED);
         }
         authTokenRepository.deleteByUserId(actor.userId());
-        String anonymousId = consentService.issueAnonymousAfterLogout(actor.userId());
-        return new LogoutResponse(anonymousId);
     }
 
     // ── 헬퍼 ──────────────────────────────────────────────────────────────────────

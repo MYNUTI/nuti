@@ -49,7 +49,7 @@ public class GradeLookupService {
 
     // ── 목표 ──────────────────────────────────────────────────────────────────
 
-    /** 소유자(로그인 또는 익명) 기준 목표. null(동의 전)·미설정은 GENERAL. */
+    /** 소유자(로그인 또는 익명) 기준 목표. null(기기 ID 없음)·미설정은 GENERAL. */
     @Transactional(readOnly = true)
     public GoalType resolveGoalType(Owner owner) {
         if (owner == null) return GoalType.GENERAL;

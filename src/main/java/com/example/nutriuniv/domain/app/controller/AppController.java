@@ -20,9 +20,9 @@ public class AppController {
 
     // GET /app/bootstrap
     @Operation(summary = "앱 진입 초기화 (기능명세서 1.1)",
-            description = "X-Anonymous-Id·Bearer 선택. 익명 ID를 발급하지 않습니다(발급은 POST /onboarding/consent). " +
-                    "라우팅 분기는 onboardingCompleted만(안 함→찍기, 완료→홈). consentAgreed·healthConsented는 행동 시점 판단용, " +
-                    "currentPolicyVersion은 동의 기록 버전과 비교해 행동 시점에 재동의를 유도합니다. 공유 링크 진입은 전역 리다이렉트 금지.")
+            description = "X-Anonymous-Id(기기 ID)·Bearer 선택. 서버는 익명 ID를 발급하지 않습니다 — 기기가 첫 실행 때 UUID 로 만듭니다. " +
+                    "첫 실행 여부도 기기가 기억합니다. consentAgreed·healthConsented는 로그인한 계정의 동의 상태(기기 ID 만 있으면 false), " +
+                    "currentPolicyVersion은 동의 기록 버전과 비교해 재동의를 유도합니다. 공유 링크 진입은 전역 리다이렉트 금지.")
     @GetMapping("/app/bootstrap")
     public ResponseEntity<CommonResponse<BootstrapResponse>> bootstrap(Actor actor) {
         return ResponseEntity.ok(CommonResponse.success(bootstrapService.bootstrap(actor)));

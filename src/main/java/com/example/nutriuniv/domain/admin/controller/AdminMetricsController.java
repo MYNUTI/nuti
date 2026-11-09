@@ -22,7 +22,7 @@ public class AdminMetricsController {
 
     // GET /admin/metrics/retention
     @Operation(summary = "재방문 집계 (명세 9.2)",
-            description = "모수 = 0~6일차 유효 방문한 「동의한 사용자」(익명 ID 발급자) 중 첫 방문이 from~to(yyyyMMdd, KST, 둘 다 선택) 인 사람. " +
+            description = "모수 = 0~6일차 유효 방문한 기기(익명 ID) 중 첫 방문이 from~to(yyyyMMdd, KST, 둘 다 선택) 인 기기. " +
                     "재방문 = 그중 7~27일차 유효 방문 1회 이상. verdict PASS(20%↑)·HOLD(7~20%)·FAIL(7%↓). definition 에 세션 30분·유효방문·창·모수 변경 시점. " +
                     "기존 /admin/stats/retention(cohort별, 1차 정의)은 그대로 둡니다.")
     @GetMapping("/admin/metrics/retention")

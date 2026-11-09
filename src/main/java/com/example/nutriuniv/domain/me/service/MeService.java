@@ -37,7 +37,6 @@ public class MeService {
     private final GoalService goalService;
     private final SavedProductRepository savedProductRepository;
     private final AnalysisRequestEventRepository analysisRequestEventRepository;
-    private final UserSettingService userSettingService;
     private final PolicyRepository policyRepository;
     private final String supportUrl;
     private final String appVersion;
@@ -48,7 +47,6 @@ public class MeService {
                      GoalService goalService,
                      SavedProductRepository savedProductRepository,
                      AnalysisRequestEventRepository analysisRequestEventRepository,
-                     UserSettingService userSettingService,
                      PolicyRepository policyRepository,
                      @Value("${app.support-url:}") String supportUrl,
                      @Value("${app.app-version:2.0.0-web}") String appVersion) {
@@ -58,7 +56,6 @@ public class MeService {
         this.goalService = goalService;
         this.savedProductRepository = savedProductRepository;
         this.analysisRequestEventRepository = analysisRequestEventRepository;
-        this.userSettingService = userSettingService;
         this.policyRepository = policyRepository;
         this.supportUrl = supportUrl == null || supportUrl.isBlank() ? null : supportUrl;
         this.appVersion = appVersion;
@@ -118,17 +115,11 @@ public class MeService {
 
     @Transactional
     public MeSettingsResponse update(Actor actor, MeSettingsUpdateRequest request) {
-        Owner owner = ownerResolver.resolve(actor);                      // 동의 전 → 403 CONSENT_REQUIRED
-        boolean hasGoal = request.getGoal() != null && !request.getGoal().isBlank();
-        if (request.getClipboardLinkDetection() == null && !hasGoal) {
+        Owner owner = ownerResolver.resolve(actor);                      // 기기 ID 없음 → 400
+        if (request.getGoal() == null || request.getGoal().isBlank()) {
             throw new CustomException(ErrorCode.BAD_REQUEST, "수정할 항목이 없습니다.");
         }
-        if (hasGoal) {
-            goalService.changeGoal(owner, GoalType.from(request.getGoal()));   // 허용값 외 400, 건강 동의 없으면 403
-        }
-        if (request.getClipboardLinkDetection() != null) {
-            userSettingService.changeClipboardLinkDetection(owner, request.getClipboardLinkDetection());
-        }
+        goalService.changeGoal(owner, GoalType.from(request.getGoal()));   // 허용값 외 400
         return buildSettings(owner);
     }
 
@@ -137,7 +128,6 @@ public class MeService {
     private MeSettingsResponse buildSettings(Owner owner) {
         GoalType goal = gradeLookupService.resolveGoalType(owner);
         return MeSettingsResponse.builder()
-                .clipboardLinkDetection(userSettingService.clipboardLinkDetection(owner))
                 .goal(MeSettingsResponse.Goal.builder().code(goal.name()).label(goal.label()).build())
                 .policies(MeSettingsResponse.Policies.builder()
                         .privacyUrl(policyUrl(PolicyType.PRIVACY))

@@ -14,7 +14,7 @@ public class WebConfig implements WebMvcConfigurer {
 
     private final ActorArgumentResolver actorArgumentResolver;
 
-    // 컨트롤러 파라미터 Actor 자동 주입 (로그인/익명/동의 전 구분)
+    // 컨트롤러 파라미터 Actor 자동 주입 (로그인/기기 ID/헤더 없음 구분)
     @Override
     public void addArgumentResolvers(List<HandlerMethodArgumentResolver> resolvers) {
         resolvers.add(actorArgumentResolver);

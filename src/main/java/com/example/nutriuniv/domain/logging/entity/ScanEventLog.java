@@ -9,7 +9,7 @@ import lombok.NoArgsConstructor;
 import java.time.LocalDateTime;
 
 /**
- * 스캔 실패 이벤트 (기능명세서 9.1 신규) — 원인별 분리 적재. IP 는 남기지 않는다(동의 전 사용자도 보내는 이벤트).
+ * 스캔 실패 이벤트 (기능명세서 9.1 신규) — 원인별 분리 적재. IP 는 남기지 않는다(로그인하지 않은 기기도 보내는 이벤트).
  * surface 는 클라 화면 식별자(예: ONBOARDING·HOME), 서버가 스스로 기록한 체크섬 실패는 SERVER.
  */
 @Entity
