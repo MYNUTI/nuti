@@ -55,29 +55,33 @@ public class ProductController {
     }
 
     // GET /products/barcode/{barcode}
-    @Operation(summary = "바코드 스캔 조회 (기능명세서 3.1·3.2)",
-            description = "8·12·13·14자리를 13자리로 정규화해 조회합니다. 체크섬 불일치 400 BARCODE_CHECKSUM_INVALID(조회 안 함, 기록). " +
-                    "데이터에 없으면 404 PRODUCT_NOT_FOUND + 대기 목록(NEW_PRODUCT) 자동 등록(같은 바코드 횟수 +1) — 인식 실패와 다른 화면. " +
-                    "영양정보 부족이면 200 + status=INSUFFICIENT(grade·topReason 없음) + 대기 목록(NUTRITION_FILL) 등록. " +
-                    "X-Anonymous-Id·토큰 선택 — 목표 미설정 시 일반 기준.")
+    @Operation(summary = "바코드 스캔 조회 (v3 SCAN_010)",
+            description = "8·12·13·14자리를 정규화해 조회합니다. 체크섬 불일치 400 BARCODE_CHECKSUM_INVALID(조회 안 함, 기록). " +
+                    "outcome 으로 갈래를 나눕니다 — RESULT: 분석 완료 제품 하나(단종·생산 중단 포함, result 에 결과 화면 전체). " +
+                    "MULTIPLE: 바코드에 제품이 둘 이상(candidates 에서 골라 GET /products/{id}). " +
+                    "NO_SCORE: 성분 7가지 중 빠진 것이 있음(result.goals 빈 배열) + 성분값 보강 요청 자동 등록. " +
+                    "NOT_FOUND: 어디에도 없음 + 새 제품 요청 자동 등록(같은 바코드 횟수 +1). " +
+                    "kcalBand(1500·2000·2500·3000, 없거나 그 밖이면 2000)는 감량 점수에만 씁니다.")
     @GetMapping("/products/barcode/{barcode}")
-    public ResponseEntity<CommonResponse<BarcodeScanResponse>> scanBarcode(
+    public ResponseEntity<CommonResponse<ScanResultResponse>> scanBarcode(
             Actor actor,
-            @Parameter(description = "바코드 (숫자 8·12·13·14자리)") @PathVariable String barcode) {
-        return ResponseEntity.ok(CommonResponse.success(productResultService.scan(barcode, actor)));
+            @Parameter(description = "바코드 (숫자 8·12·13·14자리)") @PathVariable String barcode,
+            @Parameter(description = "하루 칼로리 구간 (1500·2000·2500·3000)") @RequestParam(required = false) Integer kcalBand) {
+        return ResponseEntity.ok(CommonResponse.success(productResultService.scan(barcode, kcalBand, actor)));
     }
 
     // GET /products/{productId}
-    @Operation(summary = "제품 결과 화면 (기능명세서 2.3·5.1)",
-            description = "status·product·nutrition·grade·topReason·appliedGoal·saved 블록으로 결과 화면을 한 번에 그립니다. 조회수 +1. " +
-                    "영양정보 부족이면 status=INSUFFICIENT 로 제품명·이미지만(등급 없음) + 대기 목록(NUTRITION_FILL) 등록(404 아님). " +
-                    "없는·비활성 제품 404 PRODUCT_NOT_FOUND. X-Anonymous-Id·토큰 선택 — saved·appliedGoal 이 소유자 기준으로 반영됩니다. " +
-                    "1차 웹이 쓰던 필드(id·name·nutrients·coupang·pns·nutrientBounds 등)는 전환 기간 동안 함께 내려갑니다.")
+    @Operation(summary = "제품 결과 화면 (v3 RSLT_002)",
+            description = "두 목표(감량·근육 증가)의 점수·등급·한 줄 해석·좋은 점·아쉬운 점, 성분별 100g·1회 제공량 값과 1일 기준치 %·단계, " +
+                    "제품 상태(점수 없음·분석 완료·생산 중단·재고 판매 중·단종), 쿠팡 구매 줄, 저장 여부를 한 번에 줍니다. 조회수 +1. " +
+                    "점수가 없으면 goals 빈 배열 + 성분값 보강 요청 자동 등록(404 아님). 없는·비활성 제품 404 PRODUCT_NOT_FOUND. " +
+                    "kcalBand(1500·2000·2500·3000, 없거나 그 밖이면 2000)는 감량 점수에만 씁니다. 기준선 수치는 내려 주지 않습니다.")
     @GetMapping("/products/{productId}")
-    public ResponseEntity<CommonResponse<ProductDetailResponse>> getProduct(
+    public ResponseEntity<CommonResponse<ProductResultResponse>> getProduct(
             Actor actor,
-            @Parameter(description = "상품 ID") @PathVariable Long productId) {
-        return ResponseEntity.ok(CommonResponse.success(productService.getProduct(productId, actor)));
+            @Parameter(description = "상품 ID") @PathVariable Long productId,
+            @Parameter(description = "하루 칼로리 구간 (1500·2000·2500·3000)") @RequestParam(required = false) Integer kcalBand) {
+        return ResponseEntity.ok(CommonResponse.success(productService.getProduct(productId, kcalBand, actor)));
     }
 
     // GET /admin/products

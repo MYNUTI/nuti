@@ -7,7 +7,7 @@ import lombok.Getter;
 
 import java.time.LocalDateTime;
 
-/** GET /me/goal 출력. 미설정도 GENERAL 로 정상 응답(404 아님). */
+/** GET /me/goal 출력. 미설정도 WEIGHT_LOSS 로 정상 응답(404 아님). */
 @Getter
 @Builder
 public class GoalResponse {

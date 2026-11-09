@@ -61,14 +61,14 @@ public class AdminMetricsRepository {
                 rs.getTimestamp("last_loaded_at") == null ? null : rs.getTimestamp("last_loaded_at").toLocalDateTime()));
     }
 
-    /** 일반 기준 등급 분포 (A~E). */
+    /** 감량·2000 기준 등급 분포 (A~E) — 목표를 모를 때의 기준과 같다. */
     public Map<String, Long> gradeDistribution() {
         Map<String, Long> out = new LinkedHashMap<>();
         for (String g : List.of("A", "B", "C", "D", "E")) out.put(g, 0L);
         jdbcTemplate.query("""
                 SELECT CAST(grade AS VARCHAR) AS grade, COUNT(*) AS cnt
                 FROM   product_grades
-                WHERE  goal = 'GENERAL' AND eer_band = 0
+                WHERE  goal = 'WEIGHT_LOSS' AND eer_band = 2000
                 GROUP BY grade
                 """, rs -> { out.put(rs.getString("grade"), rs.getLong("cnt")); });
         return out;
@@ -90,7 +90,7 @@ public class AdminMetricsRepository {
                 FROM   categories r
                 JOIN   tree t ON t.root_id = r.id
                 LEFT JOIN products p ON p.category_id = t.id AND p.is_active = TRUE
-                LEFT JOIN product_grades pg ON pg.product_id = p.id AND pg.goal = 'GENERAL' AND pg.eer_band = 0
+                LEFT JOIN product_grades pg ON pg.product_id = p.id AND pg.goal = 'WEIGHT_LOSS' AND pg.eer_band = 2000
                 WHERE  r.parent_id IS NULL
                 GROUP BY r.id, r.name
                 ORDER BY total_count DESC, r.id

@@ -24,7 +24,7 @@ public class RankingController {
 
     // GET /rankings/categories
     @Operation(summary = "랭킹 분류 목록 (명세 6.3)",
-            description = "게이트(분석 완료 300건 이상 + A·D 각 1건 이상, 일반 기준)를 통과한 서비스 분류만. " +
+            description = "게이트(분석 완료 300건 이상 + A·D 각 1건 이상, 감량 · 2000kcal 기준)를 통과한 서비스 분류만. " +
                     "서비스 분류 체계가 아직 정해지지 않았거나 배치 전이면 빈 목록 — 클라이언트는 랭킹 탭을 숨깁니다. isDefault 는 정확히 하나.")
     @GetMapping("/rankings/categories")
     public ResponseEntity<CommonResponse<RankingCategoriesResponse>> categories() {
@@ -34,13 +34,13 @@ public class RankingController {
     // GET /rankings
     @Operation(summary = "분류 랭킹 (명세 6.3)",
             description = "등급순(동점은 분석 최신순). 순위와 등급을 함께 줍니다 — 「1위인데 D등급」이 실제로 나옵니다. " +
-                    "goal 생략 시 내 목표(없으면 GENERAL). 영양정보 부족 제품은 순위에서 빼고 coverage 분모에는 포함. " +
+                    "goal 생략 시 내 목표(없으면 WEIGHT_LOSS). 영양정보 부족 제품은 순위에서 빼고 coverage 분모에는 포함. " +
                     "없는 분류 404 RESOURCE_NOT_FOUND, 게이트 미통과 분류 404 RANKING_NOT_OPEN, page 음수·size 1~50 밖 400.")
     @GetMapping("/rankings")
     public ResponseEntity<CommonResponse<RankingResponse>> rankings(
             Actor actor,
             @Parameter(description = "랭킹 분류 ID (/rankings/categories 의 categoryId)") @RequestParam(required = false) Long categoryId,
-            @Parameter(description = "GENERAL | WEIGHT_LOSS | MUSCLE_GAIN (선택)") @RequestParam(required = false) String goal,
+            @Parameter(description = "WEIGHT_LOSS | MUSCLE_GAIN (선택)") @RequestParam(required = false) String goal,
             @Parameter(description = "페이지 번호 (0부터)") @RequestParam(defaultValue = "0") int page,
             @Parameter(description = "페이지 크기 (1~50)") @RequestParam(defaultValue = "20") int size) {
         return ResponseEntity.ok(CommonResponse.success(rankingQueryService.rankings(categoryId, goal, page, size, actor)));

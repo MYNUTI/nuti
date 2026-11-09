@@ -17,7 +17,7 @@ public final class SearchHighlight {
     public static String build(GoalType goal, Nutrient nutrient, BigDecimal per100g) {
         if (nutrient == null || per100g == null) return null;
         String value = per100g.setScale(1, RoundingMode.HALF_UP).stripTrailingZeros().toPlainString() + nutrient.unit();
-        String basis = goal == null || goal == GoalType.GENERAL ? "기준 초과" : goal.label() + " 기준 초과";
+        String basis = goal == null ? "기준 초과" : goal.label() + " 기준 초과";
         return nutrient.label() + " " + value + " — " + basis;
     }
 }

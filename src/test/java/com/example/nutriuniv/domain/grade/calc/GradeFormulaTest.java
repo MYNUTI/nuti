@@ -18,7 +18,6 @@ class GradeFormulaTest {
     private static final Calibration V1 = DefaultCalibration.snapshot();
     private static final int WL_SLOT = EerBand.defaultSlot(GoalType.WEIGHT_LOSS);   // 2000
     private static final int MG_SLOT = EerBand.defaultSlot(GoalType.MUSCLE_GAIN);   // 2000
-    private static final int GEN_SLOT = EerBand.defaultSlot(GoalType.GENERAL);      // 0
 
     private static GradeFormula.Input input(double cal, double prot, double fib, double sug,
                                             double sat, double trans, double chol, double na) {
@@ -36,10 +35,6 @@ class GradeFormulaTest {
         assertEquals(Grade.D, wl.grade());
         assertNull(wl.topPenaltyNutrient());
 
-        // 일반(구 health): (0 + 1.07) / 2.88 × 100 = 37.15 → 37.2 → D (37.1 이상)
-        GradeFormula.Result gen = GradeFormula.evaluate(V1, GoalType.GENERAL, GEN_SLOT, zero);
-        assertEquals(37.2, gen.score());
-        assertEquals(Grade.D, gen.grade());
 
         // 근육 증가: (0 + 0.60) / 3.29 × 100 = 18.24 → 18.2 → E (24.7 미만)
         GradeFormula.Result mg = GradeFormula.evaluate(V1, GoalType.MUSCLE_GAIN, MG_SLOT, zero);
@@ -79,10 +74,6 @@ class GradeFormulaTest {
         assertEquals(Grade.D, mg.grade());
         assertEquals(Nutrient.SUGAR, mg.topPenaltyNutrient());
 
-        // 일반: 열량 가중치 0 → raw = −0.47368 (구 health = core)
-        GradeFormula.Result gen = GradeFormula.evaluate(V1, GoalType.GENERAL, GEN_SLOT, in);
-        assertEquals(-0.47368, gen.raw(), 1e-4);
-        assertEquals(Nutrient.SUGAR, gen.topPenaltyNutrient());
     }
 
     @Test
@@ -101,8 +92,8 @@ class GradeFormulaTest {
         assertEquals(Grade.D, V1.gradeOf(GoalType.WEIGHT_LOSS, 45.5));
         assertEquals(Grade.E, V1.gradeOf(GoalType.WEIGHT_LOSS, 45.4));
         assertEquals(Grade.E, V1.gradeOf(GoalType.WEIGHT_LOSS, 0.0));
-        assertEquals("아주 잘 맞아요", V1.label(GoalType.GENERAL, Grade.A));
-        assertEquals("잘 안 맞아요", V1.label(GoalType.MUSCLE_GAIN, Grade.E));
+        assertEquals("잘 맞음", V1.label(GoalType.WEIGHT_LOSS, Grade.A));
+        assertEquals("안 맞음", V1.label(GoalType.MUSCLE_GAIN, Grade.E));
     }
 
     @Test

@@ -66,7 +66,7 @@ public class RankingBatchRepository {
 
     // ── 읽기 ─────────────────────────────────────────────────────────────────────
 
-    /** 서비스 분류별 분모·분석 완료·A/D(일반 기준) — 게이트 판정 입력. 매핑된 제품이 하나도 없는 분류는 행이 없다. */
+    /** 서비스 분류별 분모·분석 완료·A/D(감량 · 2000kcal 기준) — 게이트 판정 입력. 매핑된 제품이 하나도 없는 분류는 행이 없다. */
     public List<CategoryStatRow> categoryStats() {
         String sql = RESOLVED_CTE + """
                 SELECT r.ranking_category_id,
@@ -76,7 +76,7 @@ public class RankingBatchRepository {
                        COUNT(pg.product_id) FILTER (WHERE pg.grade = 'D') AS d_count
                 FROM   resolved r
                 JOIN   products p ON p.category_id = r.category_id AND p.is_active = TRUE
-                LEFT JOIN product_grades pg ON pg.product_id = p.id AND pg.goal = 'GENERAL' AND pg.eer_band = 0
+                LEFT JOIN product_grades pg ON pg.product_id = p.id AND pg.goal = 'WEIGHT_LOSS' AND pg.eer_band = 2000
                 GROUP BY r.ranking_category_id
                 """;
         return jdbcTemplate.query(sql, (rs, i) -> new CategoryStatRow(

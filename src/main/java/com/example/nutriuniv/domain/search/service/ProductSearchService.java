@@ -77,7 +77,7 @@ public class ProductSearchService {
         Owner owner = ownerResolver.resolveOrNull(actor);
         GoalType goal = goalParam != null && !goalParam.isBlank()
                 ? GoalType.from(goalParam)
-                : gradeLookupService.resolveGoalType(owner);     // 없으면 내 목표, 그것도 없으면 GENERAL
+                : gradeLookupService.resolveGoalType(owner);     // 없으면 내 목표, 그것도 없으면 감량
         int slot = EerBand.defaultSlot(goal);
         double threshold = settings.similarityThreshold();
 

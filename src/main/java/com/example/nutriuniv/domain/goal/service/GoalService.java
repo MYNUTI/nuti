@@ -25,7 +25,7 @@ import java.util.Optional;
 /**
  * 목표 조회·설정 (기능명세서 2.4).
  *
- * <p>ConsentService 가 건강정보 철회 시 resetToGeneral() 을 부르므로 이 서비스는 ConsentService 에 의존하지 않는다
+ * <p>ConsentService 가 건강정보 철회 시 clearSavedGoal() 을 부르므로 이 서비스는 ConsentService 에 의존하지 않는다
  * (순환 방지) — 건강정보 동의 여부는 ConsentRepository 로 직접 본다.
  */
 @Service
@@ -42,9 +42,9 @@ public class GoalService {
 
     @Transactional(readOnly = true)
     public GoalResponse getGoal(Actor actor) {
-        Owner owner = ownerResolver.resolveOrNull(actor);          // 기기 ID 도 없으면 GENERAL 로 정상 응답
+        Owner owner = ownerResolver.resolveOrNull(actor);          // 기기 ID 도 없으면 감량(DEFAULT) 으로 정상 응답
         Optional<UserGoal> saved = owner == null ? Optional.empty() : find(owner);
-        GoalType goal = saved.map(UserGoal::getGoal).orElse(GoalType.GENERAL);
+        GoalType goal = saved.map(UserGoal::getGoal).orElse(GoalType.DEFAULT);
         return GoalResponse.builder()
                 .goal(goal.name())
                 .label(goal.label())
@@ -60,7 +60,7 @@ public class GoalService {
         Owner owner = ownerResolver.resolve(actor);                 // 기기 ID 없음 → 400
         GoalType goal = GoalType.from(request.getGoal());          // 허용값 외 → 400
 
-        GoalType before = find(owner).map(UserGoal::getGoal).orElse(GoalType.GENERAL);
+        GoalType before = find(owner).map(UserGoal::getGoal).orElse(GoalType.DEFAULT);
         UserGoal ug = changeGoal(owner, goal);
 
         GoalUpdateResponse.Recalculation recalculation =
@@ -88,13 +88,13 @@ public class GoalService {
         return ug;
     }
 
-    /** 건강정보 동의 철회 시 감량·근육증가 목표를 GENERAL 로 되돌린다 (ConsentService 에서 호출). */
+    /** 건강정보 동의 철회 시 서버에 저장한 목표를 지운다 (ConsentService 에서 호출) — 목표는 기기에 남는다(v3). */
     @Transactional
-    public void resetToGeneral(Owner owner) {
-        find(owner).filter(g -> g.getGoal() != GoalType.GENERAL).ifPresent(g -> g.change(GoalType.GENERAL));
+    public void clearSavedGoal(Owner owner) {
+        find(owner).ifPresent(userGoalRepository::delete);
     }
 
-    /** 다른 도메인(bootstrap·상품 결과 화면)에서 쓰는 현재 목표. 미설정·기기 ID 없음은 GENERAL. */
+    /** 다른 도메인(bootstrap)에서 쓰는 현재 목표. 미설정·기기 ID 없음은 감량(DEFAULT). */
     @Transactional(readOnly = true)
     public GoalType currentGoal(Owner owner) {
         return gradeLookupService.resolveGoalType(owner);

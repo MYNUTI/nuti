@@ -169,92 +169,22 @@ public class ProductService {
 
     // ── 일반 유저: 상품 상세 조회 ─────────────────────────────────────────────────
 
+    /** 결과 화면 (v3 RSLT_002). kcalBand 는 감량 점수의 하루 칼로리 구간 — 없거나 4구간 밖이면 2000. */
     @Transactional
-    public ProductDetailResponse getProduct(Long productId, Actor actor) {
+    public ProductResultResponse getProduct(Long productId, Integer kcalBand, Actor actor) {
 
-        // 없는·비활성 제품 → 404 (클라는 검색으로 유도, 기능명세서 5.1)
+        // 없는·비활성 제품 → 404 (클라는 검색으로 유도)
         Product product = productRepository.findById(productId)
                 .filter(Product::isActive)
                 .orElseThrow(() -> new CustomException(ErrorCode.PRODUCT_NOT_FOUND));
 
         product.increaseViewCount();
 
-        // 영양정보 행이 없으면 영양정보 부족(INSUFFICIENT) — 404 가 아니다
+        // 영양정보 행이 없으면 점수 없음(NO_SCORE) — 404 가 아니다. 성분값 보강 요청은 build 가 자동 등록
         ProductNutrient nutrient = productNutrientRepository.findById(productId).orElse(null);
-
         CoupangLink coupangLink = coupangLinkRepository.findByProduct(product).orElse(null);
-
-        // 결과 화면 공용 블록 — 상태·등급·감점 요인·적용 목표·저장 여부. 영양정보 부족이면 대기 목록(NUTRITION_FILL) 자동 등록
-        ProductResultService.ProductResult result =
-                productResultService.build(product, nutrient, actor, AnalysisRequestChannel.AUTO_RESULT);
-
-        // 1차 웹 호환 블록 — pns(백분위)·영양소 바 차트 기준값. 열량구간은 1·2차 2000 고정
-        int eerBand = EerBand.DEFAULT.kcal();
-        ProductDetailResponse.PnsInfo pnsInfo = buildPnsInfo(product, result.gradeView(), eerBand);
-        double eer = resolveEer(actor.userId(), eerBand);
-        Long parentCategoryId = product.getCategory() == null || product.getCategory().getParent() == null
-                ? null : product.getCategory().getParent().getId();
-        ProductDetailResponse.NutrientBounds nutrientBounds = buildNutrientBounds(eer, parentCategoryId);
-
-        return toDetailResponse(product, nutrient, coupangLink, result, pnsInfo, nutrientBounds);
-    }
-
-    private ProductDetailResponse.PnsInfo buildPnsInfo(Product product,
-                                                       GradeLookupService.GradeView result,
-                                                       int eerBand) {
-        if (result == null) return null;
-
-        Category parent = product.getCategory() == null ? null : product.getCategory().getParent();
-        Long parentId     = parent == null ? null : parent.getId();
-        String parentName = parent == null ? null : parent.getName();
-        int total = gradeLookupService.countActiveByParentCategory(parentId);
-
-        return ProductDetailResponse.PnsInfo.builder()
-                .score(result.score())
-                .grade(result.grade())
-                .percentile(result.percentile())
-                .topPercent(result.topPercent())
-                .parentCategoryId(parentId)
-                .parentCategoryName(parentName)
-                .categoryTotal(total)
-                .eerBand(eerBand)
-                .build();
-    }
-
-    /**
-     * 로그인 유저면 user_nutrition에서 실제 EER을 읽고,
-     * 없거나 비로그인이면 eerBand(기본 2000)를 그대로 사용.
-     */
-    private double resolveEer(Long userId, int eerBand) {
-        if (userId == null) return eerBand;
-        return userNutritionRepository.findByUserId(userId)
-                .map(UserNutrition::getEer)
-                .filter(e -> e != null)
-                .map(BigDecimal::doubleValue)
-                .orElse((double) eerBand);
-    }
-
-    /** 영양소 바 차트 기준값 계산 — NutrientBounds */
-    private ProductDetailResponse.NutrientBounds buildNutrientBounds(double eer, Long parentCategoryId) {
-        // mealRatio: 대분류 카테고리 무관, 고정값 0.3 (MealRatioResolver 제거)
-        double mealRatio = 0.3;
-        return ProductDetailResponse.NutrientBounds.builder()
-                .eerUsed(eer)
-                .mealRatio(mealRatio)
-                .caloriesMax(eer * mealRatio)
-                .carbMin(eer * 0.50 / 4 * mealRatio)
-                .carbMax(eer * 0.65 / 4 * mealRatio)
-                .proteinMin(eer * 0.10 / 4 * mealRatio)
-                .proteinMax(eer * 0.20 / 4 * mealRatio)
-                .fatMin(eer * 0.15 / 9 * mealRatio)
-                .fatMax(eer * 0.30 / 9 * mealRatio)
-                .sugarMax(eer * 0.10 / 4 * mealRatio)
-                .saturatedFatMax(eer * 0.07 / 9 * mealRatio)
-                .transFatMax(eer * 0.01 / 9 * mealRatio)
-                .cholesterolMax(300.0 * mealRatio)
-                .sodiumMax(2300.0 * mealRatio)
-                .fiberTarget(eer * 12.0 / 1000 * mealRatio)
-                .build();
+        return productResultService.build(product, nutrient, coupangLink, EerBand.ofOrDefault(kcalBand),
+                actor, AnalysisRequestChannel.AUTO_RESULT);
     }
 
     // ── 관리자: 상품 목록 조회 ────────────────────────────────────────────────────
@@ -399,7 +329,7 @@ public class ProductService {
 
     /**
      * 목표별 사전계산 등급 점수(product_grades.score) JOIN 후 내림차순 — 로그인·비로그인 같은 조인, 목표만 다르다
-     * (비로그인·미설정은 GENERAL, 슬롯 0). 사전계산이 없는 제품(영양정보 부족)은 이 정렬에서 빠진다(구 동작과 동일).
+     * (비로그인·미설정은 감량, 슬롯 2000). 사전계산이 없는 제품(영양정보 부족)은 이 정렬에서 빠진다(구 동작과 동일).
      * 필터 조건(카테고리/브랜드/영양소 등)은 동적 WHERE절로 처리
      */
     @SuppressWarnings("unchecked")
@@ -866,63 +796,6 @@ public class ProductService {
                         .id(product.getCategory().getId())
                         .name(product.getCategory().getName())
                         .build())
-                .build();
-    }
-
-    private ProductDetailResponse toDetailResponse(Product product, ProductNutrient nutrient,
-                                                   CoupangLink coupangLink,
-                                                   ProductResultService.ProductResult result,
-                                                   ProductDetailResponse.PnsInfo pnsInfo,
-                                                   ProductDetailResponse.NutrientBounds nutrientBounds) {
-        return ProductDetailResponse.builder()
-                // 2차 결과 화면 블록 (API 명세)
-                .status(result.status().name())
-                .product(result.product())
-                .nutrition(result.nutrition())
-                .grade(result.grade())
-                .topReason(result.topReason())
-                .appliedGoal(result.appliedGoal().name())
-                .saved(result.saved())
-                // 1차 웹 호환 블록 (deprecated — 2차 화면 전환 후 제거)
-                .id(product.getId())
-                .name(product.getName())
-                .imageUrl(product.getImageUrl())
-                .nutritionScore(product.getNutritionScore())
-                .viewCount(product.getViewCount())
-                .isFavorited(result.saved())
-                .scoreRankPercent(null)
-                .brand(product.getBrand() == null ? null : ProductDetailResponse.BrandInfo.builder()
-                        .id(product.getBrand().getId())
-                        .name(product.getBrand().getName())
-                        .build())
-                .category(product.getCategory() == null ? null : ProductDetailResponse.CategoryInfo.builder()   // 분류 제외 제품(영유아식·환자식·술)
-                        .id(product.getCategory().getId())
-                        .name(product.getCategory().getName())
-                        .build())
-                .nutrients(nutrient == null ? null : ProductDetailResponse.NutrientInfo.builder()
-                        .servingSize(nutrient.getServingSize())
-                        .calories(nutrient.getCalories())
-                        .carbohydrate(nutrient.getCarbohydrate())
-                        .sugar(nutrient.getSugar())
-                        .protein(nutrient.getProtein())
-                        .fat(nutrient.getFat())
-                        .saturatedFat(nutrient.getSaturatedFat())
-                        .transFat(nutrient.getTransFat())
-                        .cholesterol(nutrient.getCholesterol())
-                        .sodium(nutrient.getSodium())
-                        .build())
-                .coupang(coupangLink == null || !"LINKED".equals(coupangLink.getLinkStatus())
-                        ? null
-                        : ProductDetailResponse.CoupangInfo.builder()
-                        .affiliateUrl(coupangLink.getAffiliateUrl())
-                        .landingUrl(coupangLink.getLandingUrl())
-                        .price(coupangLink.getProductPrice())
-                        .isRocket(coupangLink.getIsRocket())
-                        .isFreeShipping(coupangLink.getIsFreeShipping())
-                        .lastSyncedAt(coupangLink.getLastSyncedAt())
-                        .build())
-                .pns(pnsInfo)
-                .nutrientBounds(nutrientBounds)
                 .build();
     }
 

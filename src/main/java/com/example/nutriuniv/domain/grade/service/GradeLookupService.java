@@ -24,7 +24,7 @@ import java.util.Optional;
 
 /**
  * 등급 조회 — 목표에 맞는 사전계산 슬롯을 꺼낸다 (구 PnsLookupService 대체).
- * 열량구간은 1·2차 2000 고정(일반은 슬롯 0)이므로 호출부는 목표만 넘긴다.
+ * 열량구간을 넘기지 않으면 2000 슬롯. 결과 화면은 요청의 kcalBand 슬롯을 쓴다(CORE_008).
  * 사전계산이 없는 제품(영양정보 부족·배치 전)은 Optional.empty / null — 호출부가 INSUFFICIENT 로 표시한다.
  */
 @Service
@@ -49,30 +49,35 @@ public class GradeLookupService {
 
     // ── 목표 ──────────────────────────────────────────────────────────────────
 
-    /** 소유자(로그인 또는 익명) 기준 목표. null(기기 ID 없음)·미설정은 GENERAL. */
+    /** 소유자(로그인 또는 익명) 기준 목표. null(기기 ID 없음)·미설정은 감량(DEFAULT). */
     @Transactional(readOnly = true)
     public GoalType resolveGoalType(Owner owner) {
-        if (owner == null) return GoalType.GENERAL;
+        if (owner == null) return GoalType.DEFAULT;
         var found = owner.isUser()
                 ? userGoalRepository.findByUserId(owner.userId())
                 : userGoalRepository.findByAnonymousId(owner.anonymousId());
-        return found.map(UserGoal::getGoal).orElse(GoalType.GENERAL);
+        return found.map(UserGoal::getGoal).orElse(GoalType.DEFAULT);
     }
 
-    /** 로그인 유저 id 기준 목표 (기존 userId 시그니처 호출부용). 비로그인·미설정은 GENERAL. */
+    /** 로그인 유저 id 기준 목표 (기존 userId 시그니처 호출부용). 비로그인·미설정은 감량(DEFAULT). */
     @Transactional(readOnly = true)
     public GoalType resolveGoalType(Long userId) {
-        if (userId == null) return GoalType.GENERAL;
-        return userGoalRepository.findByUserId(userId).map(UserGoal::getGoal).orElse(GoalType.GENERAL);
+        if (userId == null) return GoalType.DEFAULT;
+        return userGoalRepository.findByUserId(userId).map(UserGoal::getGoal).orElse(GoalType.DEFAULT);
     }
 
     // ── 등급 ──────────────────────────────────────────────────────────────────
 
     @Transactional(readOnly = true)
     public Optional<GradeView> lookup(Long productId, GoalType goal) {
-        int slot = EerBand.defaultSlot(goal);
-        return productGradeRepository.findByProductIdAndGoalAndEerBand(productId, goal, slot)
-                .map(g -> toView(g, goal));
+        return lookup(productId, goal, EerBand.DEFAULT);
+    }
+
+    /** 열량구간 슬롯의 사전계산 등급 (CORE_008). */
+    @Transactional(readOnly = true)
+    public Optional<GradeView> lookup(Long productId, GoalType goal, EerBand band) {
+        return productGradeRepository.findByProductIdAndGoalAndEerBand(productId, goal, EerBand.slot(goal, band))
+                .map(g -> toView(g, goal, band));
     }
 
     /** 등급 문자만 (A~E). 사전계산이 없으면 null. */
@@ -98,8 +103,12 @@ public class GradeLookupService {
      * 백분위는 전체 분포가 필요하므로 null. 저장하지 않는다(다음 배치가 채운다).
      */
     public GradeView computeOnTheFly(ProductNutrient nutrient, GoalType goal) {
+        return computeOnTheFly(nutrient, goal, EerBand.DEFAULT);
+    }
+
+    public GradeView computeOnTheFly(ProductNutrient nutrient, GoalType goal, EerBand band) {
         Calibration cal = calibrationService.current();
-        GradeFormula.Result r = GradeFormula.evaluate(cal, goal, EerBand.defaultSlot(goal), toInput(nutrient));
+        GradeFormula.Result r = GradeFormula.evaluate(cal, goal, EerBand.slot(goal, band), toInput(nutrient));
         return new GradeView(
                 BigDecimal.valueOf(r.score()).setScale(1, RoundingMode.HALF_UP),
                 r.grade().name(),
@@ -107,7 +116,7 @@ public class GradeLookupService {
                 null,
                 null,
                 r.topPenaltyNutrient() == null ? null : r.topPenaltyNutrient().name(),
-                EerBand.DEFAULT.kcal(),
+                band.kcal(),
                 goal
         );
     }
@@ -149,6 +158,10 @@ public class GradeLookupService {
     // ── 내부 ──────────────────────────────────────────────────────────────────
 
     private GradeView toView(ProductGrade g, GoalType goal) {
+        return toView(g, goal, EerBand.DEFAULT);
+    }
+
+    private GradeView toView(ProductGrade g, GoalType goal, EerBand band) {
         BigDecimal percentile = g.getPercentile();
         BigDecimal topPercent = percentile == null
                 ? null
@@ -161,7 +174,7 @@ public class GradeLookupService {
                 percentile,
                 topPercent,
                 g.getTopPenaltyNutrient() == null ? null : g.getTopPenaltyNutrient().name(),
-                EerBand.DEFAULT.kcal(),
+                band.kcal(),
                 goal
         );
     }

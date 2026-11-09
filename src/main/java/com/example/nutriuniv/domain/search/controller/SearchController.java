@@ -28,12 +28,12 @@ public class SearchController {
             description = "4-way: 이름 그대로 포함 · 철자 유사도(pg_trgm) · 공백/특수문자 제거 대조 · 초성(ㄷㄷㅂ→더단백) + 동의어 사전. " +
                     "정확 일치와 비슷한 제품을 나눠서, 각각 등급순(영양정보 부족은 맨 뒤). 각 결과에 목표 기준 위반 문구(highlight). " +
                     "0건도 200 — didYouMean(교정 결과가 실존하고 편집거리 ≤ 2일 때만)·sameCategoryTop(0건일 때 상위 5)·analysisRequest.available. " +
-                    "빈 검색어·30자 초과 400. goal 생략 시 내 목표(없으면 GENERAL). page 0부터, size 1~50.")
+                    "빈 검색어·30자 초과 400. goal 생략 시 내 목표(없으면 WEIGHT_LOSS). page 0부터, size 1~50.")
     @GetMapping("/search")
     public ResponseEntity<CommonResponse<SearchResponse>> search(
             Actor actor,
             @Parameter(description = "검색어 (최대 30자)") @RequestParam(required = false) String q,
-            @Parameter(description = "GENERAL | WEIGHT_LOSS | MUSCLE_GAIN (선택)") @RequestParam(required = false) String goal,
+            @Parameter(description = "WEIGHT_LOSS | MUSCLE_GAIN (선택)") @RequestParam(required = false) String goal,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
         return ResponseEntity.ok(CommonResponse.success(productSearchService.search(q, goal, page, size, actor)));
