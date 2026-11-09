@@ -13,20 +13,6 @@ import java.util.List;
 
 public interface SearchLogRepository extends JpaRepository<SearchLog, Long> {
 
-    // 인기 검색어 집계: 기간 내 키워드별 검색 횟수 내림차순 (Pageable로 상위 N개 제한)
-    // 반환: [keyword(String), count(Number)]
-    @Query(value = """
-            SELECT keyword AS keyword,
-                   COUNT(*) AS cnt
-            FROM search_logs
-            WHERE searched_at >= :start AND searched_at < :end
-            GROUP BY keyword
-            ORDER BY cnt DESC, keyword ASC
-            """, nativeQuery = true)
-    List<Object[]> findKeywordCounts(@Param("start") LocalDateTime start,
-                                     @Param("end") LocalDateTime end,
-                                     Pageable pageable);
-
     // 관리자 검색 통계 (일별 검색수 / 고유 키워드 수)
     // native query + Object[] 대신 JPQL 생성자 표현식을 사용한다.
     @Query("""

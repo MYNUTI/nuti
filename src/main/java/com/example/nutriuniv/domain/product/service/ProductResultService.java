@@ -39,7 +39,7 @@ import java.math.BigDecimal;
  * <ul>
  *   <li>상태는 영양정보로 판정(ProductStatus.of). 영양정보 부족이면 등급 없이 제품명·이미지만 + 대기 목록(NUTRITION_FILL) 자동 등록</li>
  *   <li>등급은 사전계산(product_grades)을 먼저 보고, 없으면(배치 전) 현행 기준으로 즉석 계산 — 「분석 완료인데 등급 없음」이 생기지 않게</li>
- *   <li>감점 요인 1개는 서버가 완성 문장으로(TopReasonBuilder). 목표 미설정·동의 전은 일반 기준</li>
+ *   <li>감점 요인 1개는 서버가 완성 문장으로(TopReasonBuilder). 목표 미설정·기기 ID 없음은 일반 기준</li>
  * </ul>
  */
 @Service

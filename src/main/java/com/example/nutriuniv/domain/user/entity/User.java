@@ -76,10 +76,6 @@ public class User {
     @Column(name = "consented_at")
     private LocalDateTime consentedAt;           // 동의 시각
 
-    // 온보딩 완료 시각 (bootstrap 라우팅 분기: 안 함→찍기 화면, 완료→홈). POST /onboarding/complete 에서 기록.
-    @Column(name = "onboarding_completed_at")
-    private LocalDateTime onboardingCompletedAt;
-
     // ── Audit ─────────────────────────────────────────────────────────────────────
 
     @CreatedDate
@@ -140,12 +136,6 @@ public class User {
 
     public void revokeHealthInfo() {
         this.healthInfoAgreed = false;
-    }
-
-    public void completeOnboarding() {
-        if (this.onboardingCompletedAt == null) {
-            this.onboardingCompletedAt = LocalDateTime.now();
-        }
     }
 
     public void updateRole(String role) {

@@ -21,7 +21,7 @@ public class SavedProductController {
 
     // GET /me/saved-products
     @Operation(summary = "저장 목록 (기능명세서 7.1)",
-            description = "Bearer 또는 X-Anonymous-Id 필수(없으면 403 CONSENT_REQUIRED). 로그인·비로그인 같은 API, 소유자만 다릅니다. " +
+            description = "Bearer 또는 X-Anonymous-Id(기기 ID) 필수(없으면 400 ANONYMOUS_ID_REQUIRED). 로그인·비로그인 같은 API, 소유자만 다릅니다. " +
                     "비활성 제품 제외, 등급 없는 제품은 grade=null. page·size는 1부터.")
     @GetMapping("/me/saved-products")
     public ResponseEntity<CommonResponse<SavedProductPageResponse>> getSaved(
@@ -35,7 +35,7 @@ public class SavedProductController {
     // POST /me/saved-products/{productId}
     @Operation(summary = "제품 저장",
             description = "재저장은 200 멱등. 상한 200개 초과 409 SAVE_LIMIT_EXCEEDED, 없는 제품 404 PRODUCT_NOT_FOUND. " +
-                    "동의 전(헤더 둘 다 없음) 403 CONSENT_REQUIRED → 클라이언트가 동의 화면 후 원래 저장을 이어갑니다.")
+                    "로그인도 기기 ID 도 없으면 400 ANONYMOUS_ID_REQUIRED. 동의는 필요 없습니다.")
     @PostMapping("/me/saved-products/{productId}")
     public ResponseEntity<CommonResponse<SaveResultResponse>> save(
             Actor actor,

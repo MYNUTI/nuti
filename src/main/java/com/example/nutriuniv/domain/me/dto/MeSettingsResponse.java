@@ -9,7 +9,6 @@ import lombok.Getter;
 @Builder
 public class MeSettingsResponse {
 
-    private boolean clipboardLinkDetection;
     private Goal goal;
     private Policies policies;
 

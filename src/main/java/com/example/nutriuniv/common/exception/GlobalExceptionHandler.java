@@ -5,11 +5,15 @@ import com.example.nutriuniv.common.response.ErrorResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 @RestControllerAdvice
 @Slf4j
@@ -69,7 +73,34 @@ public class GlobalExceptionHandler {
                 .body(CommonResponse.fail(ErrorResponse.of(errorCode, e.getMessage(), request.getRequestURI())));
     }
 
-    // 500 그 외 모든 예외
+    // 404 없는 주소 — 예전엔 아래 Exception 으로 떨어져 500 이 나갔다
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<CommonResponse<ErrorResponse>> handleNoResourceFound(
+            NoResourceFoundException e, HttpServletRequest request) {
+
+        ErrorCode errorCode = ErrorCode.RESOURCE_NOT_FOUND;
+        log.info("[NotFound] url: {}", request.getRequestURI());
+
+        return ResponseEntity
+                .status(errorCode.getHttpStatus())
+                .body(CommonResponse.fail(ErrorResponse.of(errorCode, errorCode.getMessage(), request.getRequestURI())));
+    }
+
+    // 400 본문·파라미터를 읽지 못함(깨진 JSON, 숫자 자리에 글자 등) — 예전엔 500
+    @ExceptionHandler({HttpMessageNotReadableException.class, MissingServletRequestParameterException.class,
+            MethodArgumentTypeMismatchException.class})
+    public ResponseEntity<CommonResponse<ErrorResponse>> handleUnreadableRequest(
+            Exception e, HttpServletRequest request) {
+
+        ErrorCode errorCode = ErrorCode.BAD_REQUEST;
+        log.info("[BadRequest] url: {} | message: {}", request.getRequestURI(), e.getMessage());
+
+        return ResponseEntity
+                .status(errorCode.getHttpStatus())
+                .body(CommonResponse.fail(ErrorResponse.of(errorCode, errorCode.getMessage(), request.getRequestURI())));
+    }
+
+    // 500 그 외 모든 예외 — 내부 예외 메시지(SQL·클래스명 등)는 로그에만 남기고 응답에는 싣지 않는다
     @ExceptionHandler(Exception.class)
     public ResponseEntity<CommonResponse<ErrorResponse>> handleAllException(
             Exception e, HttpServletRequest request) {
@@ -79,6 +110,6 @@ public class GlobalExceptionHandler {
 
         return ResponseEntity
                 .status(errorCode.getHttpStatus())
-                .body(CommonResponse.fail(ErrorResponse.of(errorCode, e.getMessage(), request.getRequestURI())));
+                .body(CommonResponse.fail(ErrorResponse.of(errorCode, errorCode.getMessage(), request.getRequestURI())));
     }
 }

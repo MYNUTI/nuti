@@ -5,7 +5,7 @@ import com.example.nutriuniv.common.exception.ErrorCode;
 
 /**
  * 사용자 목표 (기능명세서 2.4). 등급은 목표별로 따로 사전계산돼 있다(제품당 9슬롯, product_grades.goal 이 이 값).
- * 감량·근육증가는 건강정보 동의(1.3)가 전제. 미설정은 GENERAL 로 본다.
+ * 미설정은 GENERAL 로 본다. v3 에서 GENERAL 을 없애고 두 목표를 함께 계산하는 작업은 등급 브랜치에서 한다.
  */
 public enum GoalType {
     GENERAL("일반"),
@@ -20,10 +20,6 @@ public enum GoalType {
 
     public String label() {
         return label;
-    }
-
-    public boolean requiresHealthConsent() {
-        return this != GENERAL;
     }
 
     /** 요청 문자열 → 목표. 허용값 외 400. */

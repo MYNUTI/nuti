@@ -13,6 +13,8 @@ public enum ErrorCode {
     VALIDATION_FAILED(HttpStatus.BAD_REQUEST, "입력값 유효성 검사에 실패했습니다."),
     INVALID_QUERY_PARAM(HttpStatus.BAD_REQUEST, "유효하지 않은 쿼리 파라미터입니다."),
     BARCODE_CHECKSUM_INVALID(HttpStatus.BAD_REQUEST, "바코드 체크섬이 일치하지 않습니다."),
+    // 저장·요청처럼 소유자가 필요한 API 를 로그인도 기기 ID 도 없이 부름 — 클라이언트 버그. 기기 ID 는 첫 실행 때 기기가 만든다 (v3 ACCT_001)
+    ANONYMOUS_ID_REQUIRED(HttpStatus.BAD_REQUEST, "X-Anonymous-Id 헤더(기기 UUID)가 필요합니다."),
 
     // 401 Unauthorized
     UNAUTHORIZED(HttpStatus.UNAUTHORIZED, "인증이 필요합니다."),
@@ -22,8 +24,7 @@ public enum ErrorCode {
 
     // 403 Forbidden
     FORBIDDEN(HttpStatus.FORBIDDEN, "접근 권한이 없습니다."),
-    // 아래 둘은 클라이언트가 화면을 분기하는 코드 — 동의 화면을 띄운 뒤 원래 동작을 이어간다 (기능명세서 1.2·1.3)
-    CONSENT_REQUIRED(HttpStatus.FORBIDDEN, "개인정보 수집·이용 동의가 필요합니다."),
+    // 몸 정보처럼 따로 동의를 받아야 하는 기능 — 클라이언트가 동의 화면을 띄운다
     HEALTH_CONSENT_REQUIRED(HttpStatus.FORBIDDEN, "건강정보 수집·이용 동의가 필요합니다."),
 
     // 404 Not Found

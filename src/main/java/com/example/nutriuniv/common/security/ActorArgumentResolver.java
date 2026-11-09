@@ -10,6 +10,8 @@ import org.springframework.web.context.request.NativeWebRequest;
 import org.springframework.web.method.support.HandlerMethodArgumentResolver;
 import org.springframework.web.method.support.ModelAndViewContainer;
 
+import java.util.regex.Pattern;
+
 /**
  * 컨트롤러 메서드의 {@link Actor} 파라미터를 채운다.
  *
@@ -18,8 +20,8 @@ import org.springframework.web.method.support.ModelAndViewContainer;
  * 헤더 파싱·IP 해석 로직은 LoggingController.resolveContext 에 있던 것을 그대로 옮긴 것이다
  * (로깅 5종의 동작이 바뀌지 않도록). 이제 저장·목표·기여 등 개인 귀속 API 가 같은 해석을 공유한다.
  *
- * <p>익명 ID 는 여기서 존재 검증을 하지 않는다 — 로그는 어떤 값이든 기록해도 무방하고,
- * 소유권이 걸리는 API 는 서비스 단에서 발급된 ID 인지 확인한다.
+ * <p>익명 ID 는 기기가 처음 열릴 때 스스로 만든 UUID 다(v3 ACCT_001 — 서버가 발급하지 않고, 동의 없이 쓴다).
+ * UUID 모양이 아닌 값은 없는 것으로 본다 — 로그·소유자에 아무 문자열이나 쌓이지 않게.
  */
 @Component
 public class ActorArgumentResolver implements HandlerMethodArgumentResolver {
@@ -27,6 +29,9 @@ public class ActorArgumentResolver implements HandlerMethodArgumentResolver {
     public static final String HEADER_ANONYMOUS_ID = "X-Anonymous-Id";
     public static final String HEADER_SESSION_ID = "X-Session-Id";
     public static final String HEADER_COHORT = "X-Cohort";
+
+    private static final Pattern UUID_PATTERN =
+            Pattern.compile("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$");
 
     @Override
     public boolean supportsParameter(MethodParameter parameter) {
@@ -49,7 +54,7 @@ public class ActorArgumentResolver implements HandlerMethodArgumentResolver {
         return new Actor(
                 userId,
                 role,
-                trimToNull(request.getHeader(HEADER_ANONYMOUS_ID)),
+                anonymousIdOrNull(request.getHeader(HEADER_ANONYMOUS_ID)),
                 trimToNull(request.getHeader(HEADER_SESSION_ID)),
                 Actor.normalizeCohort(request.getHeader(HEADER_COHORT)),
                 resolveClientIp(request)
@@ -62,6 +67,15 @@ public class ActorArgumentResolver implements HandlerMethodArgumentResolver {
             return request.getRemoteAddr();
         }
         return ip.split(",")[0].trim();
+    }
+
+    /** 기기 익명 ID — UUID(8-4-4-4-12 hex) 만 받고 소문자로 맞춘다. 그 외는 null. */
+    static String anonymousIdOrNull(String value) {
+        String v = trimToNull(value);
+        if (v == null || !UUID_PATTERN.matcher(v).matches()) {
+            return null;
+        }
+        return v.toLowerCase();
     }
 
     private static String trimToNull(String value) {

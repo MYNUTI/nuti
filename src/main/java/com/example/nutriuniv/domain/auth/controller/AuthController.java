@@ -2,7 +2,6 @@ package com.example.nutriuniv.domain.auth.controller;
 
 import com.example.nutriuniv.common.response.CommonResponse;
 import com.example.nutriuniv.common.security.Actor;
-import com.example.nutriuniv.domain.auth.dto.LogoutResponse;
 import com.example.nutriuniv.domain.auth.dto.OAuthLoginRequest;
 import com.example.nutriuniv.domain.auth.dto.RefreshRequest;
 import com.example.nutriuniv.domain.auth.dto.TokenResponse;
@@ -60,8 +59,8 @@ public class AuthController {
     // POST /auth/oauth
     @Operation(summary = "소셜 로그인 (+7.2 병합 내장)",
             description = "기존회원·신규회원 모두 즉시 토큰을 발급합니다(등록 단계 폐지, 이메일 외 프로필 미수집). newUser 로 신규 여부 구분. " +
-                    "X-Anonymous-Id 헤더가 있으면 그 익명 기록(저장·목표·기여)을 계정으로 병합하고 mergedRecordCount 를 돌려줍니다 — " +
-                    "한 트랜잭션, 계정에 같은 제품이 있으면 건너뜀, 이미 병합된 ID 는 무시(0). " +
+                    "X-Anonymous-Id(기기 ID) 헤더가 있으면 그 기기 기록(저장·목표·기여)을 계정으로 병합하고 mergedRecordCount 를 돌려줍니다 — " +
+                    "한 트랜잭션, 계정에 같은 제품이 있으면 건너뜀. 이미 옮긴 기기면 그 뒤 새로 쌓인 기록만 옮겨집니다. " +
                     "토큰 교환·유저 조회 실패 401 LOGIN_FAILED, 지원하지 않는 provider 400. 탈퇴(is_active=false) 유저는 신규회원으로 처리.")
     @PostMapping("/oauth")
     public ResponseEntity<CommonResponse<TokenResponse>> login(Actor actor, @RequestBody OAuthLoginRequest request) {
@@ -80,10 +79,11 @@ public class AuthController {
 
     // POST /auth/logout
     @Operation(summary = "로그아웃",
-            description = "토큰 필수(본인). 이 유저의 refresh 토큰을 전부 삭제하고 새 익명 ID 를 발급해 돌려줍니다. " +
-                    "클라이언트는 기존(병합된) 익명 ID 를 버리고 이 값을 localStorage 에 저장합니다.")
+            description = "토큰 필수(본인). 이 유저의 refresh 토큰을 전부 삭제합니다. 서버는 익명 ID 를 발급하지 않습니다 — " +
+                    "로그아웃 뒤 새 기기 ID 를 만들지는 클라이언트가 정합니다(명세 결정 대기, 추천: 새로 만든다).")
     @PostMapping("/logout")
-    public ResponseEntity<CommonResponse<LogoutResponse>> logout(Actor actor) {
-        return ResponseEntity.ok(CommonResponse.success(authService.logout(actor)));
+    public ResponseEntity<CommonResponse<Void>> logout(Actor actor) {
+        authService.logout(actor);
+        return ResponseEntity.ok(CommonResponse.success(null));
     }
 }

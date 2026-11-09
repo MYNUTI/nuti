@@ -42,9 +42,6 @@ public class ProductCtaLog {
     @Column(name = "cohort", length = 10)
     private String cohort;
 
-    @Column(name = "ip_address", length = 45)
-    private String ipAddress;
-
     @CreatedDate
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
@@ -56,7 +53,6 @@ public class ProductCtaLog {
         log.anonymousId = ctx.anonymousId();
         log.sessionId = ctx.sessionId();
         log.cohort = ctx.cohort();
-        log.ipAddress = ctx.ipAddress();
         return log;
     }
 }

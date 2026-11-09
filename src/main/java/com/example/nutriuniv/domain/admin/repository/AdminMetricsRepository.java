@@ -24,8 +24,8 @@ public class AdminMetricsRepository {
     public record CategoryRow(long categoryId, String name, long totalCount, long analyzedCount, long aCount, long dCount) {}
 
     /**
-     * 모수 = 0~6일차에 유효 방문한 「동의한 사용자」(anonymous_users 에 있는 익명 ID) 중 첫 방문이 [from, to) 인 사람.
-     * 재방문 = 그중 7~27일차에 유효 방문 1회 이상. 1차 클라 생성 UUID 세션은 anonymous_users 에 없어 자연히 빠진다.
+     * 모수 = 0~6일차에 유효 방문한 기기(익명 ID) 중 첫 방문이 [from, to) 인 기기.
+     * 재방문 = 그중 7~27일차에 유효 방문 1회 이상. v3 부터 기기 ID 는 동의 없이 쓰므로 모든 기기를 센다(헤더는 UUID 모양만 받는다).
      */
     public RetentionCounts retention(LocalDateTime fromInclusive, LocalDateTime toExclusive) {
         String sql = """
@@ -34,7 +34,6 @@ public class AdminMetricsRepository {
                 FROM (
                     SELECT v.anonymous_id, MIN(v.session_start) AS first_start
                     FROM   visit_sessions v
-                    JOIN   anonymous_users a ON a.anonymous_id = v.anonymous_id
                     WHERE  v.qualified = TRUE AND v.days_since_first BETWEEN 0 AND 6
                     GROUP BY v.anonymous_id
                 ) base

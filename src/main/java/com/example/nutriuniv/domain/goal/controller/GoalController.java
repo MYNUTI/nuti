@@ -33,8 +33,7 @@ public class GoalController {
 
     // PUT /me/goal
     @Operation(summary = "목표 설정 + 재계산 (기능명세서 2.4)",
-            description = "X-Anonymous-Id 또는 Bearer 필수(없으면 403 CONSENT_REQUIRED). " +
-                    "WEIGHT_LOSS·MUSCLE_GAIN은 건강정보 동의 선행(미동의 403 HEALTH_CONSENT_REQUIRED). 허용값 외 400. " +
+            description = "X-Anonymous-Id(기기 ID) 또는 Bearer 필수(없으면 400 ANONYMOUS_ID_REQUIRED). 동의는 필요 없습니다. 허용값 외 400. " +
                     "recalcProductId가 있으면 그 제품의 전/후 등급과 이유를 한 응답에 담습니다(등급 없는 제품이면 recalculation=null). " +
                     "키·몸무게·나이·활동량은 받지 않습니다.")
     @PutMapping("/me/goal")

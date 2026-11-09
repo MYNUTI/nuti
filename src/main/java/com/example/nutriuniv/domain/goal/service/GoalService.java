@@ -1,7 +1,5 @@
 package com.example.nutriuniv.domain.goal.service;
 
-import com.example.nutriuniv.common.exception.CustomException;
-import com.example.nutriuniv.common.exception.ErrorCode;
 import com.example.nutriuniv.common.security.Actor;
 import com.example.nutriuniv.common.security.Owner;
 import com.example.nutriuniv.domain.consent.entity.ConsentAction;
@@ -44,7 +42,7 @@ public class GoalService {
 
     @Transactional(readOnly = true)
     public GoalResponse getGoal(Actor actor) {
-        Owner owner = ownerResolver.resolveOrNull(actor);          // 동의 전이면 GENERAL 로 정상 응답
+        Owner owner = ownerResolver.resolveOrNull(actor);          // 기기 ID 도 없으면 GENERAL 로 정상 응답
         Optional<UserGoal> saved = owner == null ? Optional.empty() : find(owner);
         GoalType goal = saved.map(UserGoal::getGoal).orElse(GoalType.GENERAL);
         return GoalResponse.builder()
@@ -59,7 +57,7 @@ public class GoalService {
 
     @Transactional
     public GoalUpdateResponse setGoal(Actor actor, GoalUpdateRequest request) {
-        Owner owner = ownerResolver.resolve(actor);                 // 동의 전 → 403 CONSENT_REQUIRED
+        Owner owner = ownerResolver.resolve(actor);                 // 기기 ID 없음 → 400
         GoalType goal = GoalType.from(request.getGoal());          // 허용값 외 → 400
 
         GoalType before = find(owner).map(UserGoal::getGoal).orElse(GoalType.GENERAL);
@@ -78,13 +76,10 @@ public class GoalService {
 
     /**
      * 목표 저장 (설정 화면 PATCH /me/settings 도 이걸 쓴다 — 재계산 응답 없음).
-     * 감량·근육증가는 건강정보 동의(1.3)가 먼저 — 미동의면 403 HEALTH_CONSENT_REQUIRED(일반 거부와 구분).
+     * v3(ONB_004·ONB_009): 목표를 고르는 데는 동의가 필요 없다. 동의는 목표를 계정에 저장할 때만이고, 그 구조는 등급 브랜치에서 바꾼다.
      */
     @Transactional
     public UserGoal changeGoal(Owner owner, GoalType goal) {
-        if (goal.requiresHealthConsent() && !isHealthConsented(owner)) {
-            throw new CustomException(ErrorCode.HEALTH_CONSENT_REQUIRED);
-        }
         UserGoal ug = find(owner).orElse(null);
         if (ug == null) {
             return userGoalRepository.save(UserGoal.create(owner, goal));
@@ -99,7 +94,7 @@ public class GoalService {
         find(owner).filter(g -> g.getGoal() != GoalType.GENERAL).ifPresent(g -> g.change(GoalType.GENERAL));
     }
 
-    /** 다른 도메인(bootstrap·상품 결과 화면)에서 쓰는 현재 목표. 미설정·동의 전은 GENERAL. */
+    /** 다른 도메인(bootstrap·상품 결과 화면)에서 쓰는 현재 목표. 미설정·기기 ID 없음은 GENERAL. */
     @Transactional(readOnly = true)
     public GoalType currentGoal(Owner owner) {
         return gradeLookupService.resolveGoalType(owner);
@@ -113,11 +108,13 @@ public class GoalService {
                 : userGoalRepository.findByAnonymousId(owner.anonymousId());
     }
 
+    /** 동의는 계정만 한다 — 기기 ID 소유자는 false. */
     private boolean isHealthConsented(Owner owner) {
-        var last = owner.isUser()
-                ? consentRepository.findTopByUserIdAndConsentTypeOrderByCreatedAtDesc(owner.userId(), ConsentType.HEALTH)
-                : consentRepository.findTopByAnonymousIdAndConsentTypeOrderByCreatedAtDesc(owner.anonymousId(), ConsentType.HEALTH);
-        return last.map(c -> c.getAction() == ConsentAction.AGREE).orElse(false);
+        if (!owner.isUser()) {
+            return false;
+        }
+        return consentRepository.findTopByUserIdAndConsentTypeOrderByCreatedAtDesc(owner.userId(), ConsentType.HEALTH)
+                .map(c -> c.getAction() == ConsentAction.AGREE).orElse(false);
     }
 
     /**

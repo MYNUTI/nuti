@@ -22,7 +22,7 @@ import java.util.List;
 
 /**
  * 관리자 지표 (기능명세서 9.2·10.5).
- * 재방문: 집계 로직은 1차 그대로(세션 30분·유효방문·0~6/7~27일차), 2차 변경은 모수를 「동의한 사용자」로 재정의한 것 하나 — 변경 시점을 응답에 남긴다.
+ * 재방문: 집계 로직은 1차 그대로(세션 30분·유효방문·0~6/7~27일차). 모수는 v3 에서 「동의한 사용자」→「모든 기기」로 다시 바뀌었다 — 변경 시점을 응답에 남긴다.
  */
 @Service
 public class AdminMetricsService {
@@ -67,7 +67,7 @@ public class AdminMetricsService {
                         .sessionTimeoutMin(30)
                         .validVisit("한 세션에 검색 또는 제품 조회 1회 이상 (링크 클릭·필터 제외)")
                         .window("첫 방문일 0일차, 날짜가 바뀌면 +1 (KST). 0~6일차 방문자가 모수, 7~27일차 1회 이상이면 재방문")
-                        .population("동의한 사용자 — 개인정보 동의로 익명 ID 를 발급받은 사람만. 둘러보고 나간 사용자는 모수에서 제외")
+                        .population("모든 기기 — 기기가 만든 익명 ID(UUID) 단위. v3 부터 동의 없이 ID 를 쓰므로 둘러보고 나간 기기도 모수에 든다")
                         .changedAt(definitionChangedAt)
                         .build())
                 .build();

@@ -95,7 +95,7 @@ public class GradeReasonService {
         if (goalParam != null && !goalParam.isBlank()) {
             return GoalType.from(goalParam);                                          // 허용값 외 400
         }
-        return gradeLookupService.resolveGoalType(ownerResolver.resolveOrNull(actor));   // 미설정·동의 전 → GENERAL
+        return gradeLookupService.resolveGoalType(ownerResolver.resolveOrNull(actor));   // 미설정·기기 ID 없음 → GENERAL
     }
 
     /** 「① … ② …」 한 문단을 단계 목록으로. 원문자(①~⑩)를 구분자로 쓴다. */
