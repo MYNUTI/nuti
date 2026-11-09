@@ -157,6 +157,31 @@ public final class NutrientEvaluator {
         return new Evaluation(List.copyOf(goods), List.copyOf(bads), summary, tones);
     }
 
+    // ── 카드 태그 (SRCH_001 · SRCH_007) ─────────────────────────────────────────────
+
+    /** 목록 카드 태그 2개 — 좋은 점 1개 + 아쉬운 점 1개(한쪽이 없으면 다른 쪽으로 채움). 값 없음은 태그로 쓰지 않는다. */
+    public static List<String> tags(GoalType goal, Evaluation ev) {
+        List<Point> goods = ev.goods();
+        List<Point> bads = ev.bads().stream().filter(p -> !p.missing()).toList();
+        List<String> out = new ArrayList<>(2);
+        if (!goods.isEmpty()) out.add(shortText(goal, goods.get(0).nutrient(), Tone.GOOD));
+        if (!bads.isEmpty()) out.add(shortText(goal, bads.get(0).nutrient(), Tone.BAD));
+        for (int i = 1; out.size() < 2 && i < goods.size(); i++) out.add(shortText(goal, goods.get(i).nutrient(), Tone.GOOD));
+        for (int i = 1; out.size() < 2 && i < bads.size(); i++) out.add(shortText(goal, bads.get(i).nutrient(), Tone.BAD));
+        return List.copyOf(out);
+    }
+
+    /** 짧은 말 — 「단백질 많음」「당류 적음」「칼로리 낮음」, 근육 증가의 많은 칼로리는 「칼로리 충분」. */
+    public static String shortText(GoalType goal, Nutrient n, Tone tone) {
+        boolean good = tone == Tone.GOOD;
+        if (n == Nutrient.CALORIES) {
+            if (goal == GoalType.MUSCLE_GAIN) return good ? "칼로리 충분" : "칼로리 낮음";
+            return good ? "칼로리 낮음" : "칼로리 높음";
+        }
+        boolean moreIsBetter = n == Nutrient.PROTEIN || n == Nutrient.DIETARY_FIBER;
+        return Fact.of(n).label() + (good == moreIsBetter ? " 많음" : " 적음");
+    }
+
     // ── 문장 ─────────────────────────────────────────────────────────────────────
 
     /** 한 줄 해석 — 좋은 점과 아쉬운 점이 다 있으면 「단백질은 많지만, 100g당 칼로리가 높은 편이에요」. */

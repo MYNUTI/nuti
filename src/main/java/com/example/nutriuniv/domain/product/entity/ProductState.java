@@ -34,9 +34,17 @@ public enum ProductState {
     }
 
     public static ProductState of(ProductStatus status, boolean discontinued, CoupangLink link) {
+        return link == null
+                ? of(status, discontinued, null, null, null)
+                : of(status, discontinued, link.getLinkStatus(), link.getAffiliateUrl(), link.getLastSyncedAt());
+    }
+
+    /** 목록 조회용 — 엔티티 없이 열 값으로. */
+    public static ProductState of(ProductStatus status, boolean discontinued,
+                                  String linkStatus, String affiliateUrl, java.time.LocalDateTime lastSyncedAt) {
         if (discontinued) {
-            if (hasPurchaseLink(link)) return STOCK_REMAINING;
-            if (link != null && link.getLastSyncedAt() != null) return DISCONTINUED;
+            if (hasPurchaseLink(linkStatus, affiliateUrl)) return STOCK_REMAINING;
+            if (lastSyncedAt != null) return DISCONTINUED;
             return PRODUCTION_STOPPED;
         }
         return status == ProductStatus.ANALYZED ? ANALYZED : NO_SCORE;
@@ -46,8 +54,7 @@ public enum ProductState {
         return of(product.getStatus(), product.isDiscontinued(), product.getCoupangLink());
     }
 
-    private static boolean hasPurchaseLink(CoupangLink link) {
-        return link != null && "LINKED".equals(link.getLinkStatus())
-                && link.getAffiliateUrl() != null && !link.getAffiliateUrl().isBlank();
+    private static boolean hasPurchaseLink(String linkStatus, String affiliateUrl) {
+        return "LINKED".equals(linkStatus) && affiliateUrl != null && !affiliateUrl.isBlank();
     }
 }

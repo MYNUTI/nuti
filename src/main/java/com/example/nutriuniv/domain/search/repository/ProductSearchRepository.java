@@ -2,11 +2,11 @@ package com.example.nutriuniv.domain.search.repository;
 
 import com.example.nutriuniv.common.util.SearchNormalizer;
 import com.example.nutriuniv.domain.goal.entity.GoalType;
+import com.example.nutriuniv.domain.product.repository.ProductListQuery;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
-import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -27,8 +27,6 @@ public class ProductSearchRepository {
     private final JdbcTemplate jdbcTemplate;
 
     public record Predicate(String sql, List<Object> args) {}
-
-    public record Hit(long productId, BigDecimal score, Double similarity) {}
 
     public record Candidate(long productId, String name, String nameNormalized, Long categoryId, double similarity) {}
 
@@ -54,17 +52,34 @@ public class ProductSearchRepository {
         return new Predicate("(" + String.join(" OR ", parts) + ")", args);
     }
 
-    public Predicate similarPredicate(Predicate exact, String normalized, double threshold, List<String> synonyms) {
-        List<String> parts = new ArrayList<>();
+    /**
+     * 검색 묶음 (SRCH_001) — 정확 · 부분 일치 OR 비슷한 이름(pg_trgm %) OR 사전 동의어. 한 목록으로 점수순에 섞는다.
+     * % 연산자는 set_limit 값을 쓴다 — 호출 전에 {@link #setSimilarityLimit} (같은 트랜잭션 · 연결).
+     */
+    public ProductListQuery.Scope matchScope(Predicate exact, String normalized, List<String> synonyms) {
+        List<String> parts = new ArrayList<>(List.of(exact.sql(), "p.name_normalized % ?"));
         List<Object> args = new ArrayList<>(exact.args());
-        parts.add("similarity(p.name_normalized, ?) >= ?");
         args.add(normalized);
-        args.add(threshold);
         for (String syn : synonyms) {
             parts.add("p.name_normalized LIKE ?");
             args.add("%" + SearchNormalizer.escapeLike(syn) + "%");
         }
-        return new Predicate("NOT " + exact.sql() + " AND (" + String.join(" OR ", parts) + ")", args);
+        return new ProductListQuery.Scope("(" + String.join(" OR ", parts) + ")", args);
+    }
+
+    public void setSimilarityLimit(double threshold) {
+        jdbcTemplate.queryForObject("SELECT set_limit(?)", Float.class, (float) threshold);
+    }
+
+    /** 검색어가 제품 이름 전체와 같은 제품 (공백 · 특수문자 무시). 여럿이면 점수 높은 것. */
+    public Optional<Long> pinnedId(String normalized, GoalType goal, int slot) {
+        String sql = """
+                SELECT p.id FROM products p
+                LEFT JOIN product_grades pg ON pg.product_id = p.id AND pg.goal = ? AND pg.eer_band = ?
+                WHERE p.is_active = TRUE AND p.name_normalized = ?
+                ORDER BY (pg.score IS NULL), pg.score DESC, p.id LIMIT 1
+                """;
+        return jdbcTemplate.query(sql, (rs, i) -> rs.getLong(1), goal.name(), slot, normalized).stream().findFirst();
     }
 
     // ── 조회 ─────────────────────────────────────────────────────────────────────
@@ -73,36 +88,6 @@ public class ProductSearchRepository {
         String sql = "SELECT COUNT(*) " + FROM + "WHERE p.is_active = TRUE AND " + where.sql();
         Long n = jdbcTemplate.queryForObject(sql, Long.class, where.args().toArray());
         return n == null ? 0 : n;
-    }
-
-    /**
-     * @param similarityTerm null 이면 유사도 없이(정확 일치 절), 있으면 유사도를 함께 내려 2차 정렬 키로
-     */
-    public List<Hit> find(Predicate where, GoalType goal, int slot, String similarityTerm, int limit, int offset) {
-        List<Object> args = new ArrayList<>();
-        String simSelect;
-        if (similarityTerm != null) {
-            simSelect = "similarity(p.name_normalized, ?) AS sim";
-            args.add(similarityTerm);
-        } else {
-            simSelect = "NULL::real AS sim";
-        }
-        args.add(goal.name());
-        args.add(slot);
-        args.addAll(where.args());
-        args.add(limit);
-        args.add(offset);
-
-        String sql = "SELECT p.id, pg.score, " + simSelect + " " + FROM
-                + "LEFT JOIN product_grades pg ON pg.product_id = p.id AND pg.goal = ? AND pg.eer_band = ? "
-                + "WHERE p.is_active = TRUE AND " + where.sql() + " "
-                + "ORDER BY (pg.score IS NULL), pg.score DESC, sim DESC NULLS LAST, p.view_count DESC, p.id "
-                + "LIMIT ? OFFSET ?";
-        return jdbcTemplate.query(sql, (rs, i) -> new Hit(
-                rs.getLong("id"),
-                rs.getBigDecimal("score"),
-                rs.getObject("sim") == null ? null : rs.getDouble("sim")
-        ), args.toArray());
     }
 
     /** 유사도 최상위 1개 (기준값 무관) — didYouMean 후보·「같은 분류 상위」의 분류를 정할 때. */
@@ -127,8 +112,8 @@ public class ProductSearchRepository {
                 SELECT p.id
                 FROM   products p
                 JOIN   product_grades pg ON pg.product_id = p.id AND pg.goal = ? AND pg.eer_band = ?
-                WHERE  p.is_active = TRUE AND p.category_id = ?
-                ORDER BY pg.score DESC, p.view_count DESC, p.id
+                WHERE  p.is_active = TRUE AND p.category_id = ? AND p.status = 'ANALYZED' AND p.is_discontinued = FALSE
+                ORDER BY pg.score DESC, p.name, p.id
                 LIMIT ?
                 """;
         return jdbcTemplate.query(sql, (rs, i) -> rs.getLong("id"), goal.name(), slot, categoryId, limit);

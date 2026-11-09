@@ -1,32 +1,24 @@
 package com.example.nutriuniv.domain.saved.dto;
 
+import com.example.nutriuniv.domain.product.dto.ProductCard;
 import com.fasterxml.jackson.annotation.JsonFormat;
-import lombok.Builder;
-import lombok.Getter;
 
 import java.time.LocalDateTime;
 import java.util.List;
 
-/** GET /me/saved-products 출력. INSUFFICIENT 제품은 grade·label 이 null 로 내려간다(등급 없이 표시). */
-@Getter
-@Builder
-public class SavedProductPageResponse {
+/**
+ * GET /me/saved-products (v3 COMP_006) — 저장한 순(최근 먼저). 단종 · 생산 중단 제품도 상태 배지(product.state)로 남긴다.
+ * 점수가 없는 제품은 product.goals 빈 배열. product.better = 같은 중분류에 더 맞는 제품이 있는지(요청 목표 기준).
+ */
+public record SavedProductPageResponse(
+        String goal,
+        int kcalBand,
+        long totalCount,
+        boolean hasNext,
+        List<Item> items
+) {
 
-    private List<Item> items;
-    private long totalCount;
-    private boolean hasNext;
-
-    @Getter
-    @Builder
-    public static class Item {
-        private Long productId;
-        private String name;
-        private String imageUrl;
-        private String status;     // ANALYZED | INSUFFICIENT
-        private String grade;      // A~E, 없으면 null
-        private String label;
-
-        @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
-        private LocalDateTime savedAt;
-    }
+    public record Item(
+            ProductCard product,
+            @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss") LocalDateTime savedAt) {}
 }

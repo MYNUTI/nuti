@@ -6,6 +6,7 @@ import com.example.nutriuniv.common.response.CommonResponse;
 import com.example.nutriuniv.common.security.Actor;
 import com.example.nutriuniv.common.security.UserPrincipal;
 import com.example.nutriuniv.domain.product.dto.*;
+import com.example.nutriuniv.domain.product.service.ProductCompareService;
 import com.example.nutriuniv.domain.product.service.ProductCsvService;
 import com.example.nutriuniv.domain.product.service.ProductResultService;
 import com.example.nutriuniv.domain.product.service.ProductService;
@@ -29,6 +30,7 @@ public class ProductController {
     private final ProductService productService;
     private final ProductCsvService productCsvService;
     private final ProductResultService productResultService;
+    private final ProductCompareService productCompareService;
 
     // GET /products/nutrient-claims
     @Operation(summary = "영양 강조표시 필터 목록 조회",
@@ -75,13 +77,47 @@ public class ProductController {
             description = "두 목표(감량·근육 증가)의 점수·등급·한 줄 해석·좋은 점·아쉬운 점, 성분별 100g·1회 제공량 값과 1일 기준치 %·단계, " +
                     "제품 상태(점수 없음·분석 완료·생산 중단·재고 판매 중·단종), 쿠팡 구매 줄, 저장 여부를 한 번에 줍니다. 조회수 +1. " +
                     "점수가 없으면 goals 빈 배열 + 성분값 보강 요청 자동 등록(404 아님). 없는·비활성 제품 404 PRODUCT_NOT_FOUND. " +
-                    "kcalBand(1500·2000·2500·3000, 없거나 그 밖이면 2000)는 감량 점수에만 씁니다. 기준선 수치는 내려 주지 않습니다.")
+                    "kcalBand(1500·2000·2500·3000, 없거나 그 밖이면 2000)는 감량 점수에만 씁니다. 기준선 수치는 내려 주지 않습니다. " +
+                    "goals[].better: 같은 중분류의 더 맞는 제품 — TOP(A·B) / AVAILABLE(count개) / NONE. 소유자가 있으면 최근 본 제품에 기록합니다.")
     @GetMapping("/products/{productId}")
     public ResponseEntity<CommonResponse<ProductResultResponse>> getProduct(
             Actor actor,
             @Parameter(description = "상품 ID") @PathVariable Long productId,
+            @Parameter(description = "하루 칼로리 구간 (1500·2000·2500·3000)") @RequestParam(required = false) Integer kcalBand,
+            @Parameter(description = "들어온 경로 (최근 본 제품 기록): SEARCH · RANKING · HOME · HISTORY · SAVED · ALTERNATIVE · COMPARE · OTHER")
+            @RequestParam(required = false) String source) {
+        return ResponseEntity.ok(CommonResponse.success(productService.getProduct(productId, kcalBand, source, actor)));
+    }
+
+    // GET /products/{productId}/alternatives
+    @Operation(summary = "더 맞는 제품 (v3 COMP_001)",
+            description = "같은 중분류에서 요청 목표 점수가 더 높은 제품(분석 완료·생산 중만), 점수 높은 순 → 이름순. " +
+                    "current: 지금 제품 카드(better 포함). items[].diffs: 100g(음료 100mL)당 후보−지금, 목표 기준 나아진 성분 2개(1일 기준치 % 차이 큰 순), 예 「칼로리 −29kcal」. " +
+                    "지금 제품에 점수나 중분류가 없으면 items 빈 배열. 없는·비활성 제품 404 PRODUCT_NOT_FOUND. page는 0부터.")
+    @GetMapping("/products/{productId}/alternatives")
+    public ResponseEntity<CommonResponse<AlternativesResponse>> alternatives(
+            Actor actor,
+            @Parameter(description = "상품 ID") @PathVariable Long productId,
+            @Parameter(description = "WEIGHT_LOSS(기본) | MUSCLE_GAIN") @RequestParam(required = false) String goal,
+            @Parameter(description = "하루 칼로리 구간 (1500·2000·2500·3000)") @RequestParam(required = false) Integer kcalBand,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return ResponseEntity.ok(CommonResponse.success(
+                productCompareService.alternatives(productId, goal, kcalBand, page, size, actor)));
+    }
+
+    // GET /products/compare
+    @Operation(summary = "제품 비교 (v3 COMP_002)",
+            description = "ids(쉼표 구분, 서로 다른 2~4개, 요청 순서 유지). 제품마다 카드(두 목표 점수·등급), 1회 제공량, 성분표 10줄(100g·1회 제공량 값, 1일 기준치 %, 단계). " +
+                    "값이 없으면 value=null(0 과 구분). 개수가 맞지 않으면 400 INVALID_QUERY_PARAM, 없는·비활성 제품이 있으면 404 PRODUCT_NOT_FOUND.")
+    @GetMapping("/products/compare")
+    public ResponseEntity<CommonResponse<CompareResponse>> compare(
+            Actor actor,
+            @Parameter(description = "제품 ID 2~4개, 쉼표 구분 (예 12,34)") @RequestParam String ids,
+            @Parameter(description = "WEIGHT_LOSS(기본) | MUSCLE_GAIN") @RequestParam(required = false) String goal,
             @Parameter(description = "하루 칼로리 구간 (1500·2000·2500·3000)") @RequestParam(required = false) Integer kcalBand) {
-        return ResponseEntity.ok(CommonResponse.success(productService.getProduct(productId, kcalBand, actor)));
+        return ResponseEntity.ok(CommonResponse.success(
+                productCompareService.compare(ProductCompareService.parseIds(ids), goal, kcalBand, actor)));
     }
 
     // GET /admin/products

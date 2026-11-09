@@ -110,4 +110,19 @@ class NutrientEvaluatorTest {
         assertTrue(wl.bads().isEmpty());
         assertEquals("눈에 띄게 많거나 적은 성분이 없어요", wl.summary());
     }
+
+    @Test
+    void 카드_태그는_좋은점_하나_아쉬운점_하나_값없음은_빼고_모자라면_채운다() {
+        Evaluation ev = new Evaluation(
+                List.of(new Point(Nutrient.PROTEIN, "", false), new Point(Nutrient.SUGAR, "", false)),
+                List.of(new Point(Nutrient.DIETARY_FIBER, "", true), new Point(Nutrient.CALORIES, "", false)),
+                "", Map.of());
+        assertEquals(List.of("단백질 많음", "칼로리 높음"), NutrientEvaluator.tags(GoalType.WEIGHT_LOSS, ev));
+        assertEquals(List.of("단백질 많음", "칼로리 낮음"), NutrientEvaluator.tags(GoalType.MUSCLE_GAIN, ev));
+
+        Evaluation goodsOnly = new Evaluation(
+                List.of(new Point(Nutrient.SODIUM, "", false), new Point(Nutrient.CALORIES, "", false)), List.of(), "", Map.of());
+        assertEquals(List.of("나트륨 적음", "칼로리 충분"), NutrientEvaluator.tags(GoalType.MUSCLE_GAIN, goodsOnly));
+        assertEquals(List.of(), NutrientEvaluator.tags(GoalType.WEIGHT_LOSS, new Evaluation(List.of(), List.of(), "", Map.of())));
+    }
 }

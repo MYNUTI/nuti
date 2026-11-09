@@ -46,7 +46,8 @@ public record ProductResultResponse(
             String summary,         // 한 줄 해석
             List<Point> goods,
             List<Point> bads,       // 아쉬운 점
-            String badsEmptyText    // 아쉬운 점이 없을 때만 「이 목표에서 아쉬운 점이 없어요」
+            String badsEmptyText,   // 아쉬운 점이 없을 때만 「이 목표에서 아쉬운 점이 없어요」
+            ProductCard.BetterChoice better  // 더 맞는 제품: TOP(A·B) | AVAILABLE(같은 중분류에 더 높은 점수, count) | NONE
     ) {}
 
     public record Point(String nutrient, String text, boolean missing, String note) {}

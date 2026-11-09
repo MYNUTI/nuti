@@ -20,21 +20,26 @@ import com.example.nutriuniv.domain.grade.entity.Nutrient;
 import com.example.nutriuniv.domain.grade.service.CalibrationService;
 import com.example.nutriuniv.domain.grade.service.GradeCopyService;
 import com.example.nutriuniv.domain.grade.service.GradeLookupService;
+import com.example.nutriuniv.domain.history.entity.ViewSource;
+import com.example.nutriuniv.domain.history.service.ViewHistoryService;
 import com.example.nutriuniv.domain.link.service.PurchaseLinkService;
 import com.example.nutriuniv.domain.logging.dto.LogContext;
 import com.example.nutriuniv.domain.logging.dto.ScanEventLogRequest;
 import com.example.nutriuniv.domain.logging.service.LoggingService;
+import com.example.nutriuniv.domain.product.dto.ProductCard;
 import com.example.nutriuniv.domain.product.dto.ProductResultResponse;
 import com.example.nutriuniv.domain.product.dto.ScanResultResponse;
 import com.example.nutriuniv.domain.product.entity.Product;
 import com.example.nutriuniv.domain.product.entity.ProductNutrient;
 import com.example.nutriuniv.domain.product.entity.ProductState;
 import com.example.nutriuniv.domain.product.entity.ProductStatus;
+import com.example.nutriuniv.domain.product.repository.ProductListQuery;
 import com.example.nutriuniv.domain.product.repository.ProductNutrientRepository;
 import com.example.nutriuniv.domain.product.repository.ProductRepository;
 import com.example.nutriuniv.domain.product.util.BarcodeNormalizer;
 import com.example.nutriuniv.domain.product.util.ServingSize;
 import com.example.nutriuniv.domain.saved.repository.SavedProductRepository;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -56,6 +61,7 @@ import java.util.Map;
  *   <li>기준선 수치는 내보내지 않는다 — 단계(적은 편 · 보통 · 많은 편)와 1일 기준치 % 만</li>
  * </ul>
  */
+@Slf4j
 @Service
 public class ProductResultService {
 
@@ -69,6 +75,8 @@ public class ProductResultService {
     private final SavedProductRepository savedProductRepository;
     private final AnalysisRequestService analysisRequestService;
     private final LoggingService loggingService;
+    private final ProductListQuery listQuery;
+    private final ViewHistoryService viewHistoryService;
     private final TransactionTemplate txTemplate;
 
     public ProductResultService(ProductRepository productRepository,
@@ -81,6 +89,8 @@ public class ProductResultService {
                                 SavedProductRepository savedProductRepository,
                                 AnalysisRequestService analysisRequestService,
                                 LoggingService loggingService,
+                                ProductListQuery listQuery,
+                                ViewHistoryService viewHistoryService,
                                 PlatformTransactionManager transactionManager) {
         this.productRepository = productRepository;
         this.productNutrientRepository = productNutrientRepository;
@@ -92,6 +102,8 @@ public class ProductResultService {
         this.savedProductRepository = savedProductRepository;
         this.analysisRequestService = analysisRequestService;
         this.loggingService = loggingService;
+        this.listQuery = listQuery;
+        this.viewHistoryService = viewHistoryService;
         this.txTemplate = new TransactionTemplate(transactionManager);
     }
 
@@ -110,7 +122,7 @@ public class ProductResultService {
         }
         EerBand band = EerBand.ofOrDefault(kcalBand);
 
-        return txTemplate.execute(status -> {
+        ScanResultResponse res = txTemplate.execute(status -> {
             List<Product> found = productRepository.findByBarcode(barcode);
             List<Product> active = found.stream().filter(Product::isActive).toList();
 
@@ -133,6 +145,8 @@ public class ProductResultService {
             ProductResultResponse r = build(product, nutrient, link, band, actor, AnalysisRequestChannel.AUTO_SCAN);
             return new ScanResultResponse(r.goals().isEmpty() ? "NO_SCORE" : "RESULT", barcode, r, null);
         });
+        if (res != null && res.result() != null) recordView(actor, res.result().productId(), ViewSource.BARCODE);
+        return res;
     }
 
     // ── 공용 조립 ─────────────────────────────────────────────────────────────────
@@ -170,7 +184,8 @@ public class ProductResultService {
                         goal.name(), goal.label(), view.score(), view.grade(), view.label(), ev.summary(),
                         ev.goods().stream().map(ProductResultService::point).toList(),
                         ev.bads().stream().map(ProductResultService::point).toList(),
-                        ev.bads().isEmpty() ? NutrientEvaluator.NO_BADS : null));
+                        ev.bads().isEmpty() ? NutrientEvaluator.NO_BADS : null,
+                        better(product, goal, band, view.grade())));
             }
         }
 
@@ -201,7 +216,23 @@ public class ProductResultService {
         return p.getMaker() == null || p.getMaker().isBlank() ? null : "제조 " + p.getMaker();
     }
 
+    /** 결과 화면 기록 (RTN_001) — 실패해도 결과는 그대로 낸다. */
+    public void recordView(Actor actor, Long productId, ViewSource source) {
+        try {
+            viewHistoryService.record(ownerResolver.resolveOrNull(actor), productId, source);
+        } catch (RuntimeException e) {
+            log.warn("[HISTORY] 기록 실패 productId={}: {}", productId, e.getMessage());
+        }
+    }
+
     // ── 내부 ─────────────────────────────────────────────────────────────────────
+
+    /** 같은 중분류에서 더 맞는 제품 (COMP_001) — TOP(A·B) / AVAILABLE / NONE. */
+    private ProductCard.BetterChoice better(Product product, GoalType goal, EerBand band, String grade) {
+        long count = listQuery.betterCounts(List.of(product.getId()), goal, EerBand.slot(goal, band))
+                .getOrDefault(product.getId(), 0L);
+        return ProductCardService.better(grade, count);
+    }
 
     private boolean isSaved(Owner owner, Long productId) {
         if (owner == null) return false;
@@ -215,7 +246,7 @@ public class ProductResultService {
                 p.missing() ? NutrientEvaluator.MISSING_NOTE : null);
     }
 
-    private static double threshold(Calibration cal, Nutrient n) {
+    public static double threshold(Calibration cal, Nutrient n) {
         return cal.rules(GoalType.DEFAULT).stream()
                 .filter(r -> r.nutrient() == n)
                 .mapToDouble(Calibration.Rule::threshold)
@@ -230,7 +261,7 @@ public class ProductResultService {
         return m;
     }
 
-    private static List<ProductResultResponse.NutrientRow> nutrientRows(ProductNutrient n, Map<Nutrient, BigDecimal> per100g,
+    public static List<ProductResultResponse.NutrientRow> nutrientRows(ProductNutrient n, Map<Nutrient, BigDecimal> per100g,
                                                                         double transFatThreshold,
                                                                         Map<GoalType, Map<Nutrient, NutrientEvaluator.Tone>> tones) {
         List<ProductResultResponse.NutrientRow> rows = new ArrayList<>();
@@ -260,7 +291,7 @@ public class ProductResultService {
                 level == null ? null : level.name(), level == null ? null : level.label());
     }
 
-    private static Map<Nutrient, BigDecimal> per100g(ProductNutrient n) {
+    public static Map<Nutrient, BigDecimal> per100g(ProductNutrient n) {
         Map<Nutrient, BigDecimal> m = new EnumMap<>(Nutrient.class);
         for (Nutrient nu : Nutrient.values()) {
             BigDecimal v = per100g(n, Fact.of(nu));

@@ -20,16 +20,19 @@ public class SavedProductController {
     private final SavedProductService savedProductService;
 
     // GET /me/saved-products
-    @Operation(summary = "저장 목록 (기능명세서 7.1)",
+    @Operation(summary = "저장 목록 (v3 COMP_006)",
             description = "Bearer 또는 X-Anonymous-Id(기기 ID) 필수(없으면 400 ANONYMOUS_ID_REQUIRED). 로그인·비로그인 같은 API, 소유자만 다릅니다. " +
-                    "비활성 제품 제외, 등급 없는 제품은 grade=null. page·size는 1부터.")
+                    "저장한 순(최근 먼저). 단종·생산 중단 제품도 상태 배지(product.state)로 남기고, 비활성 제품만 뺍니다. " +
+                    "카드에 두 목표 점수·등급, 브랜드 줄, product.better(요청 goal 기준 TOP / AVAILABLE / NONE). page·size는 1부터.")
     @GetMapping("/me/saved-products")
     public ResponseEntity<CommonResponse<SavedProductPageResponse>> getSaved(
             Actor actor,
+            @Parameter(description = "WEIGHT_LOSS(기본) | MUSCLE_GAIN") @RequestParam(required = false) String goal,
+            @Parameter(description = "하루 칼로리 구간 (1500·2000·2500·3000)") @RequestParam(required = false) Integer kcalBand,
             @RequestParam(defaultValue = "1") int page,
-            @RequestParam(defaultValue = "10") int size) {
+            @RequestParam(defaultValue = "20") int size) {
 
-        return ResponseEntity.ok(CommonResponse.success(savedProductService.getSaved(actor, page, size)));
+        return ResponseEntity.ok(CommonResponse.success(savedProductService.getSaved(actor, goal, kcalBand, page, size)));
     }
 
     // POST /me/saved-products/{productId}

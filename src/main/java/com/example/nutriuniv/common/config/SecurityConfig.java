@@ -44,7 +44,7 @@ public class SecurityConfig {
                         // 로그인·비로그인이 같은 API 를 쓰는 구간(기능명세서 공통 규칙). 여기서는 통과시키고
                         // 소유자 판정(JWT → 기기 익명 ID → 없으면 400 ANONYMOUS_ID_REQUIRED)은 서비스(OwnerResolver)가 한다.
                         .requestMatchers("/app/**", "/onboarding/**", "/me/**").permitAll()
-                        .requestMatchers("/search/**", "/grades/**", "/meta/**", "/rankings/**").permitAll()
+                        .requestMatchers("/search/**", "/grades/**", "/meta/**", "/rankings/**", "/home").permitAll()
                         .requestMatchers(HttpMethod.POST, "/analysis-requests", "/products/*/reports").permitAll()
                         // admin
                         .requestMatchers("/admin/**").hasRole("ADMIN")
