@@ -118,7 +118,7 @@ public class AnalysisRequestService {
         }
         if (hasBarcode) {
             String barcode = BarcodeNormalizer.normalize(req.getBarcode());        // 형식 400 · 체크섬 400
-            Product existing = productRepository.findByBarcode(barcode).orElse(null);
+            Product existing = productRepository.findByBarcode(barcode).stream().findFirst().orElse(null);
             if (existing != null) {
                 requireNotAnalyzed(existing.getId());
                 // 바코드는 있는데 영양정보가 부족한 제품 → 보강 요청으로 받는다 (신규 등록 요청으로 두면 관리자가 같은 제품을 다시 만든다)

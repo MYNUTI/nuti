@@ -52,7 +52,7 @@ public class AdminMetricsRepository {
         String sql = """
                 SELECT COUNT(*) FILTER (WHERE is_active)                              AS total_products,
                        COUNT(*) FILTER (WHERE is_active AND status = 'ANALYZED')      AS analyzed_count,
-                       COUNT(*) FILTER (WHERE is_active AND barcode IS NOT NULL)      AS barcode_count,
+                       COUNT(*) FILTER (WHERE is_active AND EXISTS (SELECT 1 FROM product_barcodes b WHERE b.product_id = products.id)) AS barcode_count,
                        MAX(updated_at)                                                AS last_loaded_at
                 FROM   products
                 """;

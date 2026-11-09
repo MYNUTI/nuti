@@ -6,7 +6,7 @@ import com.example.nutriuniv.common.response.CommonResponse;
 import com.example.nutriuniv.common.security.Actor;
 import com.example.nutriuniv.common.security.UserPrincipal;
 import com.example.nutriuniv.domain.product.dto.*;
-import com.example.nutriuniv.domain.product.service.ProductExcelService;
+import com.example.nutriuniv.domain.product.service.ProductCsvService;
 import com.example.nutriuniv.domain.product.service.ProductResultService;
 import com.example.nutriuniv.domain.product.service.ProductService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -27,7 +27,7 @@ import java.util.List;
 public class ProductController {
 
     private final ProductService productService;
-    private final ProductExcelService productExcelService;
+    private final ProductCsvService productCsvService;
     private final ProductResultService productResultService;
 
     // GET /products/nutrient-claims
@@ -92,13 +92,15 @@ public class ProductController {
     }
 
     // POST /admin/products
-    @Operation(summary = "상품 엑셀 업로드 등록",
-            description = "xlsx 파일을 업로드하여 상품을 일괄 등록합니다. 중복 상품명은 덮어쓰기 처리됩니다.")
+    @Operation(summary = "제품 적재 (데이터 팀 CSV)",
+            description = "데이터 팀 최종 테이블 CSV(UTF-8)를 올려 master_id 기준으로 새로 만들거나 갱신합니다. 이름으로 합치지 않습니다. " +
+                    "바코드는 13자리로 맞춰 저장(N:M), category 는 중분류 코드(비면 분류 제외), content_hash 가 같으면 건너뜀, " +
+                    "운영자가 고친 제품은 건너뜀. 제품별로 따로 저장해 실패한 제품만 줄 번호·이유와 함께 돌려줍니다. 적재 중에는 다른 적재가 409.")
     @PostMapping(value = "/admin/products", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<CommonResponse<ProductUploadResponse>> uploadProducts(
             @RequestPart("file") MultipartFile file) {
 
-        return ResponseEntity.ok(CommonResponse.success(productExcelService.upload(file)));
+        return ResponseEntity.ok(CommonResponse.success(productCsvService.upload(file)));
     }
 
     // DELETE /admin/products/reset?confirm=RESET_ALL_DATA
