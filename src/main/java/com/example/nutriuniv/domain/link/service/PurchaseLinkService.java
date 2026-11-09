@@ -31,7 +31,11 @@ public class PurchaseLinkService {
                 .filter(Product::isActive)
                 .orElseThrow(() -> new CustomException(ErrorCode.PRODUCT_NOT_FOUND));
         CoupangLink link = coupangLinkRepository.findByProduct(product).orElse(null);
-        LocalDateTime now = LocalDateTime.now();
+        return of(product, link, LocalDateTime.now());
+    }
+
+    /** 결과 화면에 싣는 구매 줄 — 호출자가 이미 읽은 링크로 만든다(추가 조회 없음). */
+    public static PurchaseLinkResponse of(Product product, CoupangLink link, LocalDateTime now) {
 
         PurchaseMatchType type = PurchaseLinkRules.matchType(
                 link == null ? null : link.getLinkStatus(),
@@ -40,14 +44,16 @@ public class PurchaseLinkService {
                 link == null ? null : link.getCoupangProductName(),
                 product.getName());
         String url = link == null ? null : PurchaseLinkRules.url(type, link.getAffiliateUrl(), link.getLandingUrl());
-        boolean priceVisible = link != null && PurchaseLinkRules.priceVisible(type, link.getProductPrice(), link.getLastSyncedAt(), now);
+        boolean priceVisible = link != null && PurchaseLinkRules.priceVisible(type, link.getProductPrice());
+        LocalDateTime checkedAt = priceVisible ? PurchaseLinkRules.priceCheckedAt(link.getPriceCheckedAt(), link.getLastSyncedAt()) : null;
 
         return PurchaseLinkResponse.builder()
                 .vendor(url == null ? null : "COUPANG")
                 .url(url)
                 .matchType(type.name())
                 .price(priceVisible ? link.getProductPrice() : null)
-                .priceCheckedAt(priceVisible ? link.getLastSyncedAt() : null)
+                .priceCheckedAt(checkedAt)
+                .priceStale(priceVisible ? !PurchaseLinkRules.priceFresh(checkedAt, now) : null)
                 .isAd(url != null)
                 .adNotice(url == null ? null : PurchaseLinkRules.AD_NOTICE)
                 .build();

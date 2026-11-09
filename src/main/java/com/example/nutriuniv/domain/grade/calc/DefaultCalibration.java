@@ -15,7 +15,7 @@ import static com.example.nutriuniv.domain.grade.entity.Nutrient.*;
 
 /**
  * 초기 기준 v1 — 구 PnsCalculator v4.1 의 상수를 그대로 옮긴 값. 부팅 시 DB 에 한 번 시드된다(CalibrationService.ensureSeeded).
- * 이 값으로 계산하면 배포 전 product_pns_by_eer 와 같은 점수·등급이 나온다(일반 = 구 health).
+ * 이 값으로 계산하면 배포 전 product_pns_by_eer 와 같은 점수·등급이 나온다.
  * 이후 기준은 관리자 재산출(4.2)이 DB 에 새 버전으로 쌓고, 이 클래스는 「DB 가 비어 있을 때의 안전값」으로만 남는다.
  */
 public final class DefaultCalibration {
@@ -29,7 +29,6 @@ public final class DefaultCalibration {
 
     public static Map<GoalType, Calibration.Anchor> anchors() {
         Map<GoalType, Calibration.Anchor> m = new EnumMap<>(GoalType.class);
-        m.put(GoalType.GENERAL,     new Calibration.Anchor(-1.07, 1.81));   // 구 health
         m.put(GoalType.WEIGHT_LOSS, new Calibration.Anchor(-1.76, 1.35));   // 구 diet
         m.put(GoalType.MUSCLE_GAIN, new Calibration.Anchor(-0.60, 2.69));   // 구 bulk
         return m;
@@ -50,11 +49,10 @@ public final class DefaultCalibration {
             r.add(rule(SODIUM,        PENALTY, 1.0, 120.0, 2000.0, goal, "나트륨은 100g당 120mg을 넘는 만큼 감점이에요."));
             r.add(rule(CHOLESTEROL,   PENALTY, 1.0,  20.0,  300.0, goal, "콜레스테롤은 100g당 20mg을 넘는 만큼 감점이에요."));
             r.add(rule(TRANS_FAT,     PENALTY, 1.0,   0.2,    2.0, goal, "트랜스지방은 100g당 0.2g만 넘어도 크게 감점이에요."));
-            // 에너지밀도 — 목표별 부호. 0점 40kcal/100g. 상한 M: 감량은 열량구간별(null), 근육 증가 400 고정, 일반은 미반영(가중치 0)
+            // 에너지밀도 — 목표별 부호. 0점 40kcal/100g. 상한 M: 감량은 열량구간별(null), 근육 증가 400 고정
             switch (goal) {
                 case WEIGHT_LOSS -> r.add(rule(CALORIES, CALORIE, -1.0, 40.0, null,  goal, "감량 목표에선 100g당 열량이 높을수록 감점이에요."));
                 case MUSCLE_GAIN -> r.add(rule(CALORIES, CALORIE,  1.0, 40.0, 400.0, goal, "근육 증가 목표에선 100g당 열량이 높을수록 가점이에요."));
-                case GENERAL     -> r.add(rule(CALORIES, CALORIE,  0.0, 40.0, null,  goal, "일반 목표에선 열량을 점수에 반영하지 않아요."));
             }
             m.put(goal, r);
         }
@@ -70,7 +68,6 @@ public final class DefaultCalibration {
 
     public static Map<GoalType, List<Calibration.Cutoff>> cutoffs() {
         Map<GoalType, List<Calibration.Cutoff>> m = new EnumMap<>(GoalType.class);
-        m.put(GoalType.GENERAL,     cutoffs(64.0, 55.0, 45.3, 37.1));   // 구 toHealthGrade
         m.put(GoalType.WEIGHT_LOSS, cutoffs(74.3, 65.2, 57.8, 45.5));   // 구 diet
         m.put(GoalType.MUSCLE_GAIN, cutoffs(58.0, 45.4, 36.3, 24.7));   // 구 bulk
         return m;
@@ -86,17 +83,25 @@ public final class DefaultCalibration {
         );
     }
 
-    /** 등급 라벨 기본값 — 「나쁩니다」 대신 「잘 안 맞아요」. DB 컷오프 행의 label 이 없을 때만 쓴다. */
+    /** 등급 라벨 기본값 (v3 RSLT_003). DB 컷오프 행의 label 이 없을 때 쓴다. */
     public static String defaultLabel(Grade grade) {
         if (grade == null) return null;
         return switch (grade) {
-            case A -> "아주 잘 맞아요";
-            case B -> "잘 맞아요";
-            case C -> "보통이에요";
-            case D -> "조금 아쉬워요";
-            case E -> "잘 안 맞아요";
+            case A -> "잘 맞음";
+            case B -> "맞는 편";
+            case C -> "보통";
+            case D -> "안 맞는 편";
+            case E -> "안 맞음";
         };
     }
+
+    /** v2 라벨 → v3 라벨. 부팅 때 grade_cutoffs 의 옛 문구만 바꾼다(재산출이 라벨을 승계하므로). */
+    public static final Map<String, String> LEGACY_LABELS = Map.of(
+            "아주 잘 맞아요", "잘 맞음",
+            "잘 맞아요", "맞는 편",
+            "보통이에요", "보통",
+            "조금 아쉬워요", "안 맞는 편",
+            "잘 안 맞아요", "안 맞음");
 
     /** DB 시드 전에도 계산이 가능하도록 하는 메모리 스냅샷 (recalibrationId null). */
     public static Calibration snapshot() {
@@ -107,21 +112,39 @@ public final class DefaultCalibration {
 
     public record CopySeed(String code, GoalType goal, String title, String body, int order) {}
 
+    /** v3 문구 — 성분별 기준선 수치는 공개하지 않는다(CORE_004). 부팅 때 옛 문구(LEGACY_COPY_BODIES)만 이걸로 바꾼다. */
+    public static final String GUIDE_WEIGHTS_BODY =
+            "가점 성분은 일정한 양까지 비례해서, 감점 성분은 기준을 넘는 만큼 반영돼요. 성분별 기준 수치는 공개하지 않아요.";
+    public static final String GUIDE_GOAL_LOSS_BODY =
+            "100g당 열량이 높을수록 감점이에요. 같은 제품이라도 근육 증가 목표보다 등급이 낮아질 수 있어요.";
+    public static final String GUIDE_STEPS_BODY = "① 모든 영양성분을 100g 기준으로 맞춰요. "
+            + "② 단백질·식이섬유는 가점, 당류·포화지방·나트륨·콜레스테롤·트랜스지방은 기준을 넘는 만큼 감점이에요. "
+            + "③ 열량은 목표에 따라 다르게 봐요 — 감량은 감점, 근육 증가는 가점이에요. "
+            + "④ 합산 점수를 0~100점으로 정규화해요. "
+            + "⑤ 점수 구간에 따라 A~E 등급을 매겨요.";
+
+    /** (code, goal 이름 또는 null) → v2 문구. 이 문구 그대로인 행만 v3 로 바꾼다 — 운영자가 고친 문구는 건드리지 않는다. */
+    public record LegacyCopy(String code, String goal, String oldBody, String newBody) {}
+    public static final List<LegacyCopy> LEGACY_COPY_BODIES = List.of(
+            new LegacyCopy("GUIDE_STEPS", null,
+                    "① 모든 영양성분을 100g 기준으로 맞춰요. "
+                            + "② 단백질·식이섬유는 가점, 당류·포화지방·나트륨·콜레스테롤·트랜스지방은 기준을 넘는 만큼 감점이에요. "
+                            + "③ 열량은 목표에 따라 다르게 봐요 — 감량은 감점, 근육 증가는 가점, 일반은 반영하지 않아요. "
+                            + "④ 합산 점수를 0~100점으로 정규화해요. "
+                            + "⑤ 점수 구간에 따라 A~E 등급을 매겨요.", GUIDE_STEPS_BODY),
+            new LegacyCopy("GUIDE_WEIGHTS", null,
+                    "가점 성분은 만점선까지 비례해서 최대 1점씩, 감점 성분은 기준값을 넘는 만큼 최대 1점씩 반영돼요. "
+                            + "성분별 기준값은 등급 근거 화면에서 실제 값과 함께 보여드려요.", GUIDE_WEIGHTS_BODY),
+            new LegacyCopy("GUIDE_GOAL", "WEIGHT_LOSS",
+                    "100g당 열량이 높을수록 감점이에요. 같은 제품이라도 일반 목표보다 등급이 낮아질 수 있어요.", GUIDE_GOAL_LOSS_BODY));
+
     public static List<CopySeed> copies() {
         List<CopySeed> c = new ArrayList<>();
-        c.add(new CopySeed("GUIDE_STEPS", null, "등급은 이렇게 계산해요",
-                "① 모든 영양성분을 100g 기준으로 맞춰요. "
-                        + "② 단백질·식이섬유는 가점, 당류·포화지방·나트륨·콜레스테롤·트랜스지방은 기준을 넘는 만큼 감점이에요. "
-                        + "③ 열량은 목표에 따라 다르게 봐요 — 감량은 감점, 근육 증가는 가점, 일반은 반영하지 않아요. "
-                        + "④ 합산 점수를 0~100점으로 정규화해요. "
-                        + "⑤ 점수 구간에 따라 A~E 등급을 매겨요.", 1));
+        c.add(new CopySeed("GUIDE_STEPS", null, "등급은 이렇게 계산해요", GUIDE_STEPS_BODY, 1));
         c.add(new CopySeed("GUIDE_WEIGHTS", null, "성분별 비중",
-                "가점 성분은 만점선까지 비례해서 최대 1점씩, 감점 성분은 기준값을 넘는 만큼 최대 1점씩 반영돼요. "
-                        + "성분별 기준값은 등급 근거 화면에서 실제 값과 함께 보여드려요.", 2));
-        c.add(new CopySeed("GUIDE_GOAL", GoalType.GENERAL, "일반 목표",
-                "열량은 반영하지 않고 영양 성분의 균형만 봐요.", 3));
+                GUIDE_WEIGHTS_BODY, 2));
         c.add(new CopySeed("GUIDE_GOAL", GoalType.WEIGHT_LOSS, "체중 감량 목표",
-                "100g당 열량이 높을수록 감점이에요. 같은 제품이라도 일반 목표보다 등급이 낮아질 수 있어요.", 3));
+                GUIDE_GOAL_LOSS_BODY, 3));
         c.add(new CopySeed("GUIDE_GOAL", GoalType.MUSCLE_GAIN, "근육 증가 목표",
                 "100g당 열량이 높을수록 가점이에요. 단백질이 풍부한 제품이 유리해요.", 3));
         c.add(new CopySeed("FIBER_NOTICE", null, "식이섬유 안내",

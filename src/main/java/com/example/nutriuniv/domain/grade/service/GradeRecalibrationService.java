@@ -209,8 +209,7 @@ public class GradeRecalibrationService {
         for (GoalType goal : GoalType.values()) {
             before.put(goal, emptyDistribution());
         }
-        for (Object[] row : productGradeRepository.countByGoalAndGradeAtSlot(
-                GoalType.GENERAL, EerBand.GENERAL_SLOT, EerBand.DEFAULT.kcal())) {
+        for (Object[] row : productGradeRepository.countByGoalAndGradeAtSlot(EerBand.DEFAULT.kcal())) {
             GoalType goal = (GoalType) row[0];
             Grade grade = (Grade) row[1];
             long count = ((Number) row[2]).longValue();

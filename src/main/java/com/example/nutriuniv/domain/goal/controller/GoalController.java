@@ -25,7 +25,7 @@ public class GoalController {
 
     // GET /me/goal
     @Operation(summary = "내 목표 조회 (기능명세서 2.4)",
-            description = "X-Anonymous-Id 또는 Bearer. 없거나 미설정이면 GENERAL로 정상 응답합니다(404 아님).")
+            description = "X-Anonymous-Id 또는 Bearer. 없거나 미설정이면 WEIGHT_LOSS로 정상 응답합니다(404 아님).")
     @GetMapping("/me/goal")
     public ResponseEntity<CommonResponse<GoalResponse>> getGoal(Actor actor) {
         return ResponseEntity.ok(CommonResponse.success(goalService.getGoal(actor)));

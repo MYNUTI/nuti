@@ -113,7 +113,7 @@ class AnonymousMergeServiceTest {
         when(savedProductRepository.findByAnonymousId(DEVICE)).thenReturn(List.of());
         UserGoal deviceGoal = UserGoal.create(Owner.ofAnonymous(DEVICE), GoalType.MUSCLE_GAIN);
         when(userGoalRepository.findByAnonymousId(DEVICE)).thenReturn(Optional.of(deviceGoal));
-        when(userGoalRepository.findByUserId(7L)).thenReturn(Optional.of(UserGoal.create(Owner.ofUser(7L), GoalType.GENERAL)));
+        when(userGoalRepository.findByUserId(7L)).thenReturn(Optional.of(UserGoal.create(Owner.ofUser(7L), GoalType.WEIGHT_LOSS)));
         when(analysisRequestEventRepository.transferToUser(DEVICE, 7L)).thenReturn(0);
         when(anonymousUserRepository.findByAnonymousId(DEVICE)).thenReturn(Optional.empty());
 

@@ -18,7 +18,7 @@ public class BootstrapResponse {
 
     private boolean consentAgreed;
     private boolean healthConsented;
-    private String goal;                    // GENERAL | WEIGHT_LOSS | MUSCLE_GAIN (미설정·기기 ID 없음은 GENERAL)
+    private String goal;                    // WEIGHT_LOSS | MUSCLE_GAIN (미설정·기기 ID 없음은 WEIGHT_LOSS)
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private String currentPolicyVersion;    // 정책 행이 아직 없으면 null

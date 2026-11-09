@@ -16,6 +16,7 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
+          cache: 'gradle'   # Gradle 배포판·라이브러리 재사용 — services.gradle.org 일시 장애(504)에도 덜 깨진다
 
       - name: Create application-prod.properties
         run: |

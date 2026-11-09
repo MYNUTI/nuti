@@ -14,6 +14,6 @@ public class AdminProductNutrientUpdateResponse {
     private Long productId;
     private String status;                  // ANALYZED | INSUFFICIENT
     private List<String> changedFields;     // 「sugarPer100g: 12.000 → 8.5」
-    private Map<String, String> grades;     // GENERAL / WEIGHT_LOSS / MUSCLE_GAIN → A~E (INSUFFICIENT 면 빈 맵)
+    private Map<String, String> grades;     // WEIGHT_LOSS / MUSCLE_GAIN → A~E (INSUFFICIENT 면 빈 맵)
     private boolean manuallyCorrected;      // 재적재 보호 켜짐
 }

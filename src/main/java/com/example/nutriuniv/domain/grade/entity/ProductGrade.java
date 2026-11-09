@@ -15,7 +15,7 @@ import java.util.Objects;
 /**
  * 제품당 9슬롯 사전계산 등급 (기능명세서 공통 규칙·4.1) — 구 product_pns_by_eer 개조.
  * <p>슬롯 = (goal, eer_band): 감량×4구간 + 근육 증가×4구간 + 일반×1. 일반은 열량구간과 무관하므로 eer_band=0 한 슬롯.
- * 1·2차 조회는 구간 2000(일반은 0)만 쓴다 — {@code EerBand.defaultSlot(goal)}.
+ * 구간을 모르면 2000 슬롯을 쓴다 — {@code EerBand.defaultSlot(goal)}.
  * <p>쓰기는 배치(GradeBatchService)가 JDBC 로 전량 교체한다. 이 엔티티는 DDL 생성·조회용.
  * products FK 는 두지 않는다(구 테이블과 동일, 배치 적재 속도) — 제품은 비활성화만 하고 삭제하지 않는다. 전체 초기화는 ProductService.resetAll 이 함께 비운다.
  */

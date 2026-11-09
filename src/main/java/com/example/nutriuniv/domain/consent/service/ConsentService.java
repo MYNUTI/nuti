@@ -41,7 +41,7 @@ import java.util.stream.Collectors;
  *   <li>v3(ACCT_001·ACCT_004): 기기 ID 는 동의 없이 쓰고, 동의는 가입(계정)에서만 받는다. 그래서 익명 ID 를 발급하지도, 익명 소유 동의를 남기지도 않는다.</li>
  *   <li>같은 버전 재요청은 200 멱등. 다른 버전이면 재동의 행 추가.</li>
  *   <li>동의 기록은 append-only. IP 는 해시만.</li>
- *   <li>건강정보 동의는 개인정보 동의와 저장 분리. 철회 시 정보 삭제(플래그 off + REVOKE 행) + 목표를 GENERAL 로.</li>
+ *   <li>건강정보 동의는 개인정보 동의와 저장 분리. 철회 시 정보 삭제(플래그 off + REVOKE 행) + 서버에 저장한 목표 삭제.</li>
  * </ul>
  * 동의 7항목·가입 2단계(ACCT_004)로 바꾸는 작업은 계정 브랜치에서 한다.
  */
@@ -118,7 +118,7 @@ public class ConsentService {
         consentRepository.save(Consent.revoke(owner, ConsentType.HEALTH, last.get().getPolicyVersion(),
                 sha256(actor.ipAddress()), userAgent));
         setHealthFlag(owner, false);
-        goalService.resetToGeneral(owner);     // 감량·근육증가 목표는 건강정보 동의가 전제 → 철회 시 GENERAL 로
+        goalService.clearSavedGoal(owner);     // 서버에 저장한 목표는 건강정보 동의가 전제 → 철회 시 지운다
         return HealthConsentResponse.notAgreed();
     }
 

@@ -58,6 +58,10 @@ public class CoupangLink {
     @Column(name = "last_synced_at")
     private LocalDateTime lastSyncedAt;
 
+    // 판매가를 마지막으로 받은 시각 (v3 RSLT_009) — 조회가 실패해도(syncFailed) 바뀌지 않는다. 화면은 「직전 판매가 · 조회일」
+    @Column(name = "price_checked_at")
+    private LocalDateTime priceCheckedAt;
+
     // 구매 링크 매칭 종류 수동 지정 (기능명세서 8.1) — EXACT | NAME_SEARCH. null 이면 PurchaseLinkRules 가 상품명 비교로 자동 판정.
     // 관리자가 「정확히 같은 제품」임을 확인한 경우에만 EXACT 를 넣는다(가격 노출 조건). 자동 판정은 보수적이라 대부분 NAME_SEARCH.
     @Column(name = "match_type", length = 20)
@@ -88,6 +92,7 @@ public class CoupangLink {
         this.isFreeShipping = isFreeShipping;
         this.linkStatus = "LINKED";
         this.lastSyncedAt = LocalDateTime.now();
+        if (productPrice != null) this.priceCheckedAt = this.lastSyncedAt;
     }
 
     public void syncFailed() {

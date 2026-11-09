@@ -23,11 +23,8 @@ public interface ProductGradeRepository extends JpaRepository<ProductGrade, Prod
     @Query("""
             SELECT g.goal, g.grade, COUNT(g.productId)
             FROM   ProductGrade g
-            WHERE  (g.goal = :general AND g.eerBand = :generalSlot)
-               OR  (g.goal <> :general AND g.eerBand = :band)
+            WHERE  g.eerBand = :band
             GROUP BY g.goal, g.grade
             """)
-    List<Object[]> countByGoalAndGradeAtSlot(@Param("general") GoalType general,
-                                             @Param("generalSlot") int generalSlot,
-                                             @Param("band") int band);
+    List<Object[]> countByGoalAndGradeAtSlot(@Param("band") int band);
 }

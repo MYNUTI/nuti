@@ -36,14 +36,17 @@ class PurchaseLinkRulesTest {
     }
 
     @Test
-    void 가격은_EXACT_이고_24시간_이내만() {
+    void 가격은_EXACT_이면_직전_판매가와_조회일_24시간이_지나면_stale() {
         LocalDateTime now = LocalDateTime.of(2026, 10, 1, 12, 0);
-        assertTrue(PurchaseLinkRules.priceVisible(PurchaseMatchType.EXACT, 12900, now.minusHours(23), now));
-        assertTrue(PurchaseLinkRules.priceVisible(PurchaseMatchType.EXACT, 12900, now.minusHours(24), now));
-        assertFalse(PurchaseLinkRules.priceVisible(PurchaseMatchType.EXACT, 12900, now.minusHours(24).minusSeconds(1), now));
-        assertFalse(PurchaseLinkRules.priceVisible(PurchaseMatchType.NAME_SEARCH, 12900, now, now));
-        assertFalse(PurchaseLinkRules.priceVisible(PurchaseMatchType.EXACT, null, now, now));
-        assertFalse(PurchaseLinkRules.priceVisible(PurchaseMatchType.EXACT, 12900, null, now));
+        assertTrue(PurchaseLinkRules.priceVisible(PurchaseMatchType.EXACT, 12900));
+        assertFalse(PurchaseLinkRules.priceVisible(PurchaseMatchType.NAME_SEARCH, 12900));
+        assertFalse(PurchaseLinkRules.priceVisible(PurchaseMatchType.EXACT, null));
+        assertTrue(PurchaseLinkRules.priceFresh(now.minusHours(24), now));
+        assertFalse(PurchaseLinkRules.priceFresh(now.minusHours(24).minusSeconds(1), now));
+        assertFalse(PurchaseLinkRules.priceFresh(null, now));
+        // 실패한 동기화가 last_synced_at 을 밀어도 가격 조회일은 price_checked_at
+        assertEquals(now.minusDays(3), PurchaseLinkRules.priceCheckedAt(now.minusDays(3), now));
+        assertEquals(now, PurchaseLinkRules.priceCheckedAt(null, now));
     }
 
     @Test

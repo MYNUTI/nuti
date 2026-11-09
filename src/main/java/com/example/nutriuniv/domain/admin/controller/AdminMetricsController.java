@@ -34,7 +34,7 @@ public class AdminMetricsController {
 
     // GET /admin/dashboard/data-status
     @Operation(summary = "데이터 현황 대시보드 (명세 10.5)",
-            description = "전체 제품 수 · 분석 완료 비율 · 바코드 보유 비율 · 등급 분포(일반 기준, 재산출 필요 신호) · " +
+            description = "전체 제품 수 · 분석 완료 비율 · 바코드 보유 비율 · 등급 분포(감량 · 2000kcal 기준, 재산출 필요 신호) · " +
                     "대분류별 분석 완료 비율(랭킹 게이트 300건+A·D 통과 여부와 함께) · 마지막 적재일 · 분석 대기 건수.")
     @GetMapping("/admin/dashboard/data-status")
     public ResponseEntity<CommonResponse<DataStatusResponse>> dataStatus() {

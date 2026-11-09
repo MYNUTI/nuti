@@ -7,5 +7,5 @@ import lombok.NoArgsConstructor;
 @Getter
 @NoArgsConstructor
 public class MeSettingsUpdateRequest {
-    private String goal;                    // GENERAL | WEIGHT_LOSS | MUSCLE_GAIN
+    private String goal;                    // WEIGHT_LOSS | MUSCLE_GAIN
 }

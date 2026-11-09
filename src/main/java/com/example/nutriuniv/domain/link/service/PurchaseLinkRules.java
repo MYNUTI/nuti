@@ -13,14 +13,14 @@ import java.time.LocalDateTime;
  *   <li>매칭 종류: 링크가 없거나 LINKED 가 아니면 NONE. 관리자 수동 지정(coupang_links.match_type)이 있으면 그것.
  *       없으면 <b>쿠팡 상품명(수량·용량 토막 제거)과 우리 제품명이 정규화 후 같을 때만 EXACT</b>, 그 외 NAME_SEARCH.
  *       저장된 링크가 전부 제품명 검색 결과라 보수적으로 간다 — 다른 제품 가격을 이 제품 가격처럼 보이게 하지 않는다.</li>
- *   <li>가격: EXACT 이고 마지막 조회가 24시간 이내일 때만. NAME_SEARCH 는 절대 주지 않는다.</li>
+ *   <li>가격: EXACT 일 때 직전 판매가와 그 조회일을 준다(v3 RSLT_009). 24시간이 지났으면 stale 로 표시만. NAME_SEARCH 는 절대 주지 않는다.</li>
  *   <li>URL: EXACT 는 상품 페이지(affiliate), NAME_SEARCH 는 검색 결과 페이지(landing, 없으면 상품 페이지).</li>
  * </ul>
  */
 public final class PurchaseLinkRules {
 
     public static final Duration PRICE_TTL = Duration.ofHours(24);
-    public static final String AD_NOTICE = "쿠팡 파트너스 활동의 일환으로 일정액의 수수료를 받을 수 있어요. 노출비는 받지 않으며 순위·등급에 영향을 주지 않습니다.";
+    public static final String AD_NOTICE = "쿠팡 파트너스 활동의 일환으로, 이에 따른 일정액의 수수료를 제공받습니다.";
 
     private PurchaseLinkRules() {}
 
@@ -39,8 +39,13 @@ public final class PurchaseLinkRules {
         return lastSyncedAt != null && !lastSyncedAt.plus(PRICE_TTL).isBefore(now);
     }
 
-    public static boolean priceVisible(PurchaseMatchType type, Integer price, LocalDateTime lastSyncedAt, LocalDateTime now) {
-        return type == PurchaseMatchType.EXACT && price != null && priceFresh(lastSyncedAt, now);
+    public static boolean priceVisible(PurchaseMatchType type, Integer price) {
+        return type == PurchaseMatchType.EXACT && price != null;
+    }
+
+    /** 가격 조회일 — 새 컬럼(price_checked_at)이 비어 있는 예전 행은 마지막 동기화 시각. */
+    public static LocalDateTime priceCheckedAt(LocalDateTime priceCheckedAt, LocalDateTime lastSyncedAt) {
+        return priceCheckedAt != null ? priceCheckedAt : lastSyncedAt;
     }
 
     public static String url(PurchaseMatchType type, String affiliateUrl, String landingUrl) {

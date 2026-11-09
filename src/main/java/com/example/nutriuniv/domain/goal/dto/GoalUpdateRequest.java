@@ -10,7 +10,7 @@ import lombok.NoArgsConstructor;
 public class GoalUpdateRequest {
 
     @NotBlank(message = "goal은 필수입니다.")
-    private String goal;          // GENERAL | WEIGHT_LOSS | MUSCLE_GAIN
+    private String goal;          // WEIGHT_LOSS | MUSCLE_GAIN
 
     private Long recalcProductId; // 선택
 }

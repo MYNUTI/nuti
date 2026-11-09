@@ -60,7 +60,7 @@ public class ConsentController {
 
     // DELETE /me/health-consent
     @Operation(summary = "건강정보 동의 철회",
-            description = "로그인 필수(없으면 401). 철회 기록을 남기고(append-only) 건강정보 플래그를 내립니다. 목표는 GENERAL로 되돌아갑니다. 이미 철회 상태면 200 멱등.")
+            description = "로그인 필수(없으면 401). 철회 기록을 남기고(append-only) 건강정보 플래그를 내립니다. 서버에 저장한 목표는 지워집니다. 이미 철회 상태면 200 멱등.")
     @DeleteMapping("/me/health-consent")
     public ResponseEntity<CommonResponse<HealthConsentResponse>> revokeHealth(
             Actor actor,

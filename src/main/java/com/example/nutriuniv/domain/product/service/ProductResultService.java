@@ -7,39 +7,53 @@ import com.example.nutriuniv.common.security.Owner;
 import com.example.nutriuniv.domain.analysis.entity.AnalysisRequestChannel;
 import com.example.nutriuniv.domain.analysis.service.AnalysisRequestService;
 import com.example.nutriuniv.domain.consent.service.OwnerResolver;
+import com.example.nutriuniv.domain.coupang.entity.CoupangLink;
+import com.example.nutriuniv.domain.coupang.repository.CoupangLinkRepository;
 import com.example.nutriuniv.domain.goal.entity.GoalType;
 import com.example.nutriuniv.domain.grade.calc.Calibration;
-import com.example.nutriuniv.domain.grade.calc.TopReasonBuilder;
+import com.example.nutriuniv.domain.grade.calc.EerBand;
+import com.example.nutriuniv.domain.grade.calc.GradeFormula;
+import com.example.nutriuniv.domain.grade.calc.NutrientEvaluator;
+import com.example.nutriuniv.domain.grade.calc.NutrientEvaluator.Fact;
+import com.example.nutriuniv.domain.grade.calc.NutrientEvaluator.Level;
 import com.example.nutriuniv.domain.grade.entity.Nutrient;
 import com.example.nutriuniv.domain.grade.service.CalibrationService;
 import com.example.nutriuniv.domain.grade.service.GradeCopyService;
 import com.example.nutriuniv.domain.grade.service.GradeLookupService;
+import com.example.nutriuniv.domain.link.service.PurchaseLinkService;
 import com.example.nutriuniv.domain.logging.dto.LogContext;
 import com.example.nutriuniv.domain.logging.dto.ScanEventLogRequest;
 import com.example.nutriuniv.domain.logging.service.LoggingService;
-import com.example.nutriuniv.domain.product.dto.BarcodeScanResponse;
-import com.example.nutriuniv.domain.product.dto.GradeBadge;
-import com.example.nutriuniv.domain.product.dto.NutritionFacts;
-import com.example.nutriuniv.domain.product.dto.ProductSummary;
+import com.example.nutriuniv.domain.product.dto.ProductResultResponse;
+import com.example.nutriuniv.domain.product.dto.ScanResultResponse;
 import com.example.nutriuniv.domain.product.entity.Product;
 import com.example.nutriuniv.domain.product.entity.ProductNutrient;
+import com.example.nutriuniv.domain.product.entity.ProductState;
 import com.example.nutriuniv.domain.product.entity.ProductStatus;
 import com.example.nutriuniv.domain.product.repository.ProductNutrientRepository;
 import com.example.nutriuniv.domain.product.repository.ProductRepository;
 import com.example.nutriuniv.domain.product.util.BarcodeNormalizer;
+import com.example.nutriuniv.domain.product.util.ServingSize;
 import com.example.nutriuniv.domain.saved.repository.SavedProductRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.EnumMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 /**
- * 결과 화면 공용 조립 (기능명세서 2.3·3.2·5.1) — 제품 상세와 바코드 스캔이 같은 블록(status·product·nutrition·grade·topReason·appliedGoal·saved)을 낸다.
+ * 결과 화면 조립 (v3 RSLT_002 · CORE_004 · SCAN_010) — 제품 상세와 바코드 스캔이 같은 결과(ProductResultResponse)를 낸다.
  * <ul>
- *   <li>상태는 영양정보로 판정(ProductStatus.of). 영양정보 부족이면 등급 없이 제품명·이미지만 + 대기 목록(NUTRITION_FILL) 자동 등록</li>
- *   <li>등급은 사전계산(product_grades)을 먼저 보고, 없으면(배치 전) 현행 기준으로 즉석 계산 — 「분석 완료인데 등급 없음」이 생기지 않게</li>
- *   <li>감점 요인 1개는 서버가 완성 문장으로(TopReasonBuilder). 목표 미설정·기기 ID 없음은 일반 기준</li>
+ *   <li>두 목표를 한 번에. 감량 점수는 요청의 칼로리 구간(kcalBand, 없거나 4구간 밖이면 2000)으로</li>
+ *   <li>등급은 사전계산(product_grades)을 먼저 보고, 없으면(배치 전) 현행 기준으로 즉석 계산</li>
+ *   <li>점수가 없으면(성분 7가지 중 빠짐) goals 는 빈 배열 + 성분값 보강 요청 자동 등록</li>
+ *   <li>기준선 수치는 내보내지 않는다 — 단계(적은 편 · 보통 · 많은 편)와 1일 기준치 % 만</li>
  * </ul>
  */
 @Service
@@ -47,6 +61,7 @@ public class ProductResultService {
 
     private final ProductRepository productRepository;
     private final ProductNutrientRepository productNutrientRepository;
+    private final CoupangLinkRepository coupangLinkRepository;
     private final OwnerResolver ownerResolver;
     private final GradeLookupService gradeLookupService;
     private final CalibrationService calibrationService;
@@ -58,6 +73,7 @@ public class ProductResultService {
 
     public ProductResultService(ProductRepository productRepository,
                                 ProductNutrientRepository productNutrientRepository,
+                                CoupangLinkRepository coupangLinkRepository,
                                 OwnerResolver ownerResolver,
                                 GradeLookupService gradeLookupService,
                                 CalibrationService calibrationService,
@@ -68,6 +84,7 @@ public class ProductResultService {
                                 PlatformTransactionManager transactionManager) {
         this.productRepository = productRepository;
         this.productNutrientRepository = productNutrientRepository;
+        this.coupangLinkRepository = coupangLinkRepository;
         this.ownerResolver = ownerResolver;
         this.gradeLookupService = gradeLookupService;
         this.calibrationService = calibrationService;
@@ -78,85 +95,110 @@ public class ProductResultService {
         this.txTemplate = new TransactionTemplate(transactionManager);
     }
 
-    /** 조립 결과 — 응답 DTO 두 종류(상세·스캔)가 이걸 나눠 쓴다. gradeView 는 1차 웹 호환 pns 블록용. */
-    public record ProductResult(
-            ProductStatus status,
-            ProductSummary product,
-            NutritionFacts nutrition,
-            GradeBadge grade,
-            GradeLookupService.GradeView gradeView,
-            String topReason,
-            GoalType appliedGoal,
-            boolean saved
-    ) {}
+    // ── GET /products/barcode/{barcode} (SCAN_010) ────────────────────────────────
 
-    // ── GET /products/barcode/{barcode} (3.1·3.2) ─────────────────────────────────
-
-    public BarcodeScanResponse scan(String rawBarcode, Actor actor) {
+    public ScanResultResponse scan(String rawBarcode, Integer kcalBand, Actor actor) {
         String barcode;
         try {
-            barcode = BarcodeNormalizer.normalize(rawBarcode);                 // 8·12·13·14 → 13, 형식 400, 체크섬 400
+            barcode = BarcodeNormalizer.normalize(rawBarcode);                 // 형식 400, 체크섬 400
         } catch (CustomException e) {
             if (e.getErrorCode() == ErrorCode.BARCODE_CHECKSUM_INVALID) {
-                // 조회하지 않고 사실만 기록 (3.1) — 클라가 보내는 /logging/scan-event 와 구분되게 surface=SERVER
+                // 조회하지 않고 사실만 기록 — 클라가 보내는 /logging/scan-event 와 구분되게 surface=SERVER
                 loggingService.logScanEvent(ScanEventLogRequest.serverChecksumFail(rawBarcode), LogContext.from(actor));
             }
             throw e;
         }
+        EerBand band = EerBand.ofOrDefault(kcalBand);
 
         return txTemplate.execute(status -> {
-            // 바코드 하나에 제품이 여럿이면(N:M) 지금은 활성 제품 중 첫 번째 — 고르는 화면(스캔 갈래)은 결과 브랜치(feat/v3-grade-result)에서
-            java.util.List<Product> found = productRepository.findByBarcode(barcode);
-            Product product = found.stream().filter(Product::isActive).findFirst().orElse(found.isEmpty() ? null : found.get(0));
-            if (product == null) {
-                // 인식은 됐는데 데이터에 없음 → 대기 목록(NEW_PRODUCT) 자동 등록(같은 바코드 횟수 +1) 후 404. 인식 실패와 다른 화면
-                analysisRequestService.registerNewProductByBarcodeQuietly(barcode, actor);
-                throw new CustomException(ErrorCode.PRODUCT_NOT_FOUND, "데이터에 없는 제품이에요. 분석 대기 목록에 등록했어요.");
+            List<Product> found = productRepository.findByBarcode(barcode);
+            List<Product> active = found.stream().filter(Product::isActive).toList();
+
+            if (active.isEmpty()) {
+                // 어디에도 없음 → 새 제품 요청(같은 바코드는 횟수 +1). 비활성 제품만 있으면 등록하지 않는다
+                if (found.isEmpty()) analysisRequestService.registerNewProductByBarcodeQuietly(barcode, actor);
+                return new ScanResultResponse("NOT_FOUND", barcode, null, null);
             }
-            if (!product.isActive()) {
-                throw new CustomException(ErrorCode.PRODUCT_NOT_FOUND);
+            if (active.size() > 1) {
+                List<ScanResultResponse.Candidate> candidates = active.stream().map(p -> {
+                    ProductState state = ProductState.of(ProductStatus.of(p.getProductNutrient()), p.isDiscontinued(), p.getCoupangLink());
+                    return new ScanResultResponse.Candidate(p.getId(), p.getName(), brandLine(p), p.getImageUrl(), state.name(), state.label());
+                }).toList();
+                return new ScanResultResponse("MULTIPLE", barcode, null, candidates);
             }
+
+            Product product = active.get(0);
             ProductNutrient nutrient = productNutrientRepository.findById(product.getId()).orElse(null);
-            ProductResult r = build(product, nutrient, actor, AnalysisRequestChannel.AUTO_SCAN);
-            return BarcodeScanResponse.builder()
-                    .status(r.status().name())
-                    .product(r.product())
-                    .grade(r.grade())
-                    .topReason(r.topReason())
-                    .appliedGoal(r.appliedGoal().name())
-                    .build();
+            CoupangLink link = coupangLinkRepository.findByProduct(product).orElse(null);
+            ProductResultResponse r = build(product, nutrient, link, band, actor, AnalysisRequestChannel.AUTO_SCAN);
+            return new ScanResultResponse(r.goals().isEmpty() ? "NO_SCORE" : "RESULT", barcode, r, null);
         });
     }
 
     // ── 공용 조립 ─────────────────────────────────────────────────────────────────
 
     /**
-     * 호출자가 트랜잭션(또는 OSIV) 안에서 부른다 — Product 의 brand 등 지연 로딩.
-     * @param insufficientChannel 영양정보 부족일 때 자동 등록에 남길 경로 (AUTO_SCAN·AUTO_RESULT)
+     * 호출자가 트랜잭션(또는 OSIV) 안에서 부른다 — brand · category 지연 로딩.
+     * @param insufficientChannel 점수가 없을 때 자동 등록에 남길 경로 (AUTO_SCAN · AUTO_RESULT)
      */
-    public ProductResult build(Product product, ProductNutrient nutrient, Actor actor, AnalysisRequestChannel insufficientChannel) {
+    public ProductResultResponse build(Product product, ProductNutrient nutrient, CoupangLink link, EerBand band,
+                                       Actor actor, AnalysisRequestChannel insufficientChannel) {
         Owner owner = ownerResolver.resolveOrNull(actor);
-        GoalType goal = gradeLookupService.resolveGoalType(owner);
-        boolean saved = isSaved(owner, product.getId());
         ProductStatus status = ProductStatus.of(nutrient);
-        ProductSummary summary = ProductSummary.of(product, nutrient, copyService.body("SOURCE_NOTE"));
-        NutritionFacts nutrition = NutritionFacts.from(nutrient);
-
-        if (status != ProductStatus.ANALYZED) {
+        ProductState state = ProductState.of(status, product.isDiscontinued(), link);
+        ServingSize serving = nutrient == null ? null : ServingSize.parse(nutrient.getServingSize());
+        String basis = ServingSize.basisOf(serving);
+        boolean scored = status == ProductStatus.ANALYZED;
+        if (!scored) {
             analysisRequestService.registerNutritionFillQuietly(product.getId(), actor, insufficientChannel);
-            return new ProductResult(status, summary, nutrition, null, null, null, goal, saved);
         }
 
-        GradeLookupService.GradeView view = gradeLookupService.lookup(product.getId(), goal)
-                .orElseGet(() -> gradeLookupService.computeOnTheFly(nutrient, goal));
-        GradeBadge badge = GradeBadge.builder()
-                .score(view.score())
-                .grade(view.grade())
-                .label(view.label())
-                .badgeText(copyService.body("BADGE_PRE_CATEGORY"))     // 1·2차 「분류 비교 전」 고정
-                .fiberIncluded(nutrient.getFiberPer100g() != null)
-                .build();
-        return new ProductResult(status, summary, nutrition, badge, view, topReason(view, nutrient, goal), goal, saved);
+        Calibration cal = calibrationService.current();
+        double transFatThreshold = threshold(cal, Nutrient.TRANS_FAT);
+        Map<Nutrient, BigDecimal> per100g = nutrient == null ? Map.of() : per100g(nutrient);
+
+        List<ProductResultResponse.GoalResult> goals = new ArrayList<>();
+        Map<GoalType, Map<Nutrient, NutrientEvaluator.Tone>> tones = new EnumMap<>(GoalType.class);
+        if (scored) {
+            for (GoalType goal : GoalType.values()) {
+                GradeLookupService.GradeView view = gradeLookupService.lookup(product.getId(), goal, band)
+                        .orElseGet(() -> gradeLookupService.computeOnTheFly(nutrient, goal, band));
+                NutrientEvaluator.Evaluation ev = NutrientEvaluator.evaluate(goal, basis, per100g, transFatThreshold,
+                        contributions(cal, goal, band, nutrient));
+                tones.put(goal, ev.tones());
+                goals.add(new ProductResultResponse.GoalResult(
+                        goal.name(), goal.label(), view.score(), view.grade(), view.label(), ev.summary(),
+                        ev.goods().stream().map(ProductResultService::point).toList(),
+                        ev.bads().stream().map(ProductResultService::point).toList(),
+                        ev.bads().isEmpty() ? NutrientEvaluator.NO_BADS : null));
+            }
+        }
+
+        return new ProductResultResponse(
+                product.getId(),
+                product.getName(),
+                brandLine(product),
+                product.getImageUrl(),
+                state.name(),
+                state.label(),
+                product.getCategory() == null ? null
+                        : new ProductResultResponse.CategoryInfo(product.getCategory().getCode(), product.getCategory().getName()),
+                serving == null ? null : new ProductResultResponse.Serving(serving.text(), serving.amount(), serving.unit()),
+                basis,
+                band.kcal(),
+                scored ? cal.version() : null,
+                goals,
+                nutrient == null ? List.of() : nutrientRows(nutrient, per100g, transFatThreshold, tones),
+                PurchaseLinkService.of(product, link, LocalDateTime.now()),
+                isSaved(owner, product.getId()),
+                copyService.body("SOURCE_NOTE"));
+    }
+
+    /** 브랜드 줄 — 브랜드가 비어 있으면 「제조 ○○」, 둘 다 없으면 null. */
+    public static String brandLine(Product p) {
+        String brand = p.getBrand() == null ? null : p.getBrand().getName();
+        if (brand != null && !brand.isBlank()) return brand;
+        return p.getMaker() == null || p.getMaker().isBlank() ? null : "제조 " + p.getMaker();
     }
 
     // ── 내부 ─────────────────────────────────────────────────────────────────────
@@ -168,39 +210,92 @@ public class ProductResultService {
                 : savedProductRepository.existsByAnonymousIdAndProductIdAndProductIsActiveTrue(owner.anonymousId(), productId);
     }
 
-    private String topReason(GradeLookupService.GradeView view, ProductNutrient n, GoalType goal) {
-        if (view.topPenaltyNutrient() == null) return null;
-        Nutrient top = Nutrient.valueOf(view.topPenaltyNutrient());
-        Double threshold = calibrationService.current().rules(goal).stream()
-                .filter(r -> r.nutrient() == top)
-                .map(Calibration.Rule::threshold)
-                .findFirst().orElse(null);
-        return TopReasonBuilder.build(top, servingValue(n, top), per100gValue(n, top), threshold);
+    private static ProductResultResponse.Point point(NutrientEvaluator.Point p) {
+        return new ProductResultResponse.Point(p.nutrient().name(), p.text(), p.missing(),
+                p.missing() ? NutrientEvaluator.MISSING_NOTE : null);
     }
 
-    private static BigDecimal servingValue(ProductNutrient n, Nutrient nutrient) {
-        return switch (nutrient) {
-            case CALORIES      -> n.getCalories();
-            case PROTEIN       -> n.getProtein();
-            case DIETARY_FIBER -> n.getFiber();
-            case SUGAR         -> n.getSugar();
-            case SATURATED_FAT -> n.getSaturatedFat();
-            case TRANS_FAT     -> n.getTransFat();
-            case CHOLESTEROL   -> n.getCholesterol();
-            case SODIUM        -> n.getSodium();
-        };
+    private static double threshold(Calibration cal, Nutrient n) {
+        return cal.rules(GoalType.DEFAULT).stream()
+                .filter(r -> r.nutrient() == n)
+                .mapToDouble(Calibration.Rule::threshold)
+                .findFirst().orElse(0.0);
     }
 
-    private static BigDecimal per100gValue(ProductNutrient n, Nutrient nutrient) {
-        return switch (nutrient) {
+    private static Map<Nutrient, Double> contributions(Calibration cal, GoalType goal, EerBand band, ProductNutrient n) {
+        Map<Nutrient, Double> m = new EnumMap<>(Nutrient.class);
+        for (GradeFormula.Contribution c : GradeFormula.raw(goal, EerBand.slot(goal, band), GradeLookupService.toInput(n), cal.rules(goal)).contributions()) {
+            m.merge(c.nutrient(), c.value(), Double::sum);
+        }
+        return m;
+    }
+
+    private static List<ProductResultResponse.NutrientRow> nutrientRows(ProductNutrient n, Map<Nutrient, BigDecimal> per100g,
+                                                                        double transFatThreshold,
+                                                                        Map<GoalType, Map<Nutrient, NutrientEvaluator.Tone>> tones) {
+        List<ProductResultResponse.NutrientRow> rows = new ArrayList<>();
+        for (Fact f : Fact.values()) {
+            BigDecimal v100 = f.graded() != null ? per100g.get(f.graded()) : per100g(n, f);
+            BigDecimal vServing = serving(n, f);
+            Map<String, String> toneByGoal = null;
+            if (f.graded() != null && !tones.isEmpty()) {
+                toneByGoal = new LinkedHashMap<>();
+                for (Map.Entry<GoalType, Map<Nutrient, NutrientEvaluator.Tone>> e : tones.entrySet()) {
+                    toneByGoal.put(e.getKey().name(), e.getValue().get(f.graded()).name());
+                }
+            }
+            rows.add(new ProductResultResponse.NutrientRow(
+                    f.name(), f.label(), f.unit(),
+                    amount(f, v100, transFatThreshold),
+                    vServing == null ? null : amount(f, vServing, transFatThreshold),
+                    v100 == null,
+                    toneByGoal));
+        }
+        return rows;
+    }
+
+    private static ProductResultResponse.Amount amount(Fact f, BigDecimal value, double transFatThreshold) {
+        Level level = NutrientEvaluator.level(f, value, transFatThreshold);
+        return new ProductResultResponse.Amount(value, NutrientEvaluator.dvPercent(f, value),
+                level == null ? null : level.name(), level == null ? null : level.label());
+    }
+
+    private static Map<Nutrient, BigDecimal> per100g(ProductNutrient n) {
+        Map<Nutrient, BigDecimal> m = new EnumMap<>(Nutrient.class);
+        for (Nutrient nu : Nutrient.values()) {
+            BigDecimal v = per100g(n, Fact.of(nu));
+            if (v != null) m.put(nu, v);
+        }
+        return m;
+    }
+
+    private static BigDecimal per100g(ProductNutrient n, Fact f) {
+        return switch (f) {
             case CALORIES      -> n.getCaloriesPer100g();
-            case PROTEIN       -> n.getProteinPer100g();
-            case DIETARY_FIBER -> n.getFiberPer100g();
+            case CARBOHYDRATE  -> n.getCarbohydratePer100g();
             case SUGAR         -> n.getSugarPer100g();
+            case DIETARY_FIBER -> n.getFiberPer100g();
+            case PROTEIN       -> n.getProteinPer100g();
+            case FAT           -> n.getFatPer100g();
             case SATURATED_FAT -> n.getSaturatedFatPer100g();
             case TRANS_FAT     -> n.getTransFatPer100g();
             case CHOLESTEROL   -> n.getCholesterolPer100g();
             case SODIUM        -> n.getSodiumPer100g();
+        };
+    }
+
+    private static BigDecimal serving(ProductNutrient n, Fact f) {
+        return switch (f) {
+            case CALORIES      -> n.getCalories();
+            case CARBOHYDRATE  -> n.getCarbohydrate();
+            case SUGAR         -> n.getSugar();
+            case DIETARY_FIBER -> n.getFiber();
+            case PROTEIN       -> n.getProtein();
+            case FAT           -> n.getFat();
+            case SATURATED_FAT -> n.getSaturatedFat();
+            case TRANS_FAT     -> n.getTransFat();
+            case CHOLESTEROL   -> n.getCholesterol();
+            case SODIUM        -> n.getSodium();
         };
     }
 }
