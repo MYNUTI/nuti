@@ -18,6 +18,7 @@ import com.example.nutriuniv.domain.grade.repository.GradeRecalibrationRepositor
 import com.example.nutriuniv.domain.grade.repository.ProductGradeRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import com.example.nutriuniv.domain.product.service.ProductLoadService;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -54,6 +55,7 @@ public class GradeRecalibrationService {
     private final GradeEngineLock lock;
     private final TransactionTemplate txTemplate;
     private final TransactionTemplate txNew;
+    private final ProductLoadService productLoadService;
 
     public GradeRecalibrationService(GradeInputRepository inputRepository,
                                      ProductGradeRepository productGradeRepository,
@@ -61,7 +63,9 @@ public class GradeRecalibrationService {
                                      CalibrationService calibrationService,
                                      GradeBatchService batchService,
                                      GradeEngineLock lock,
-                                     PlatformTransactionManager transactionManager) {
+                                     PlatformTransactionManager transactionManager,
+                                     ProductLoadService productLoadService) {
+        this.productLoadService = productLoadService;
         this.inputRepository = inputRepository;
         this.productGradeRepository = productGradeRepository;
         this.recalibrationRepository = recalibrationRepository;
@@ -91,6 +95,10 @@ public class GradeRecalibrationService {
     // ── 실행 ──────────────────────────────────────────────────────────────────
 
     public RecalibrationResultResponse execute(Long adminUserId) {
+        // 적재 중에는 제품 집합이 바뀌는 중이라 기준을 다시 잡지 않는다 (v3 DATA_000)
+        if (productLoadService.isLoading()) {
+            throw new CustomException(ErrorCode.STATE_CONFLICT, "제품 적재가 진행 중입니다. 적재가 끝난 뒤 다시 실행해 주세요.");
+        }
         if (!lock.tryAcquire()) {
             throw new CustomException(ErrorCode.STATE_CONFLICT, "등급 재계산 또는 기준 재산출이 이미 진행 중입니다.");
         }

@@ -105,7 +105,9 @@ public class ProductResultService {
         }
 
         return txTemplate.execute(status -> {
-            Product product = productRepository.findByBarcode(barcode).orElse(null);
+            // 바코드 하나에 제품이 여럿이면(N:M) 지금은 활성 제품 중 첫 번째 — 고르는 화면(스캔 갈래)은 결과 브랜치(feat/v3-grade-result)에서
+            java.util.List<Product> found = productRepository.findByBarcode(barcode);
+            Product product = found.stream().filter(Product::isActive).findFirst().orElse(found.isEmpty() ? null : found.get(0));
             if (product == null) {
                 // 인식은 됐는데 데이터에 없음 → 대기 목록(NEW_PRODUCT) 자동 등록(같은 바코드 횟수 +1) 후 404. 인식 실패와 다른 화면
                 analysisRequestService.registerNewProductByBarcodeQuietly(barcode, actor);

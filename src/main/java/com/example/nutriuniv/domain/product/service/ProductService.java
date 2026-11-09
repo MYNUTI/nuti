@@ -69,6 +69,7 @@ public class ProductService {
     private final RecommendationService recommendationService;
     private final ProductResultService productResultService;
     private final ProductChangeLogRepository productChangeLogRepository;
+    private final ProductBarcodeService productBarcodeService;
 
     // ── 일반 유저: 상품 목록 조회 ─────────────────────────────────────────────────
 
@@ -191,7 +192,7 @@ public class ProductService {
         int eerBand = EerBand.DEFAULT.kcal();
         ProductDetailResponse.PnsInfo pnsInfo = buildPnsInfo(product, result.gradeView(), eerBand);
         double eer = resolveEer(actor.userId(), eerBand);
-        Long parentCategoryId = product.getCategory().getParent() == null
+        Long parentCategoryId = product.getCategory() == null || product.getCategory().getParent() == null
                 ? null : product.getCategory().getParent().getId();
         ProductDetailResponse.NutrientBounds nutrientBounds = buildNutrientBounds(eer, parentCategoryId);
 
@@ -203,7 +204,7 @@ public class ProductService {
                                                        int eerBand) {
         if (result == null) return null;
 
-        Category parent = product.getCategory().getParent();
+        Category parent = product.getCategory() == null ? null : product.getCategory().getParent();
         Long parentId     = parent == null ? null : parent.getId();
         String parentName = parent == null ? null : parent.getName();
         int total = gradeLookupService.countActiveByParentCategory(parentId);
@@ -326,21 +327,17 @@ public class ProductService {
             changes.add("category: " + (product.getCategory() == null ? null : product.getCategory().getId()) + " → " + request.getCategoryId());
         if (request.getBrandId() != null && (product.getBrand() == null || !request.getBrandId().equals(product.getBrand().getId())))
             changes.add("brand: " + (product.getBrand() == null ? null : product.getBrand().getId()) + " → " + request.getBrandId());
-        String barcodeBefore = product.getBarcode();
-
         product.update(name, category, brand, imageUrl, score);
 
-        // 바코드 (3.1) — 빈 문자열은 제거, 값이 있으면 13자리 정규화(형식·체크섬 400), 다른 제품과 중복이면 409
-        if (request.getBarcode() != null) {
-            String raw = request.getBarcode().trim();
-            if (raw.isEmpty()) {
-                product.updateBarcode(null);
-            } else {
-                String normalized = BarcodeNormalizer.normalize(raw);
-                if (productRepository.existsByBarcodeAndIdNot(normalized, productId)) {
-                    throw new CustomException(ErrorCode.DUPLICATE_RESOURCE, "같은 바코드를 가진 다른 제품이 있습니다: " + normalized);
-                }
-                product.updateBarcode(normalized);
+        // 바코드 (3.1, v3 N:M) — 목록 전체로 바꾼다. 빈 목록이면 모두 제거, null 이면 유지. 13자리 정규화(형식·체크섬 400). 다른 제품과 겹쳐도 된다
+        if (request.getBarcodes() != null) {
+            List<String> before = productBarcodeService.barcodesOf(productId);
+            List<String> normalized = request.getBarcodes().stream()
+                    .filter(s -> s != null && !s.isBlank())
+                    .map(BarcodeNormalizer::normalize)
+                    .distinct().sorted().toList();
+            if (productBarcodeService.replace(product, normalized)) {
+                changes.add("barcodes: " + before + " → " + normalized);
             }
         }
 
@@ -350,7 +347,6 @@ public class ProductService {
         }
 
         // 재적재 보호 (10.4): 적재가 덮어쓰는 데이터 필드(이름·이미지·분류·브랜드·바코드)를 고쳤으면 자동으로 켠다. 명시 지정이 있으면 그것을 따른다
-        if (!Objects.equals(barcodeBefore, product.getBarcode())) changes.add("barcode: " + barcodeBefore + " → " + product.getBarcode());
         if (request.getManuallyCorrected() != null) {
             if (request.getManuallyCorrected()) product.markManuallyCorrected();
             else product.clearManualCorrection();
@@ -866,7 +862,7 @@ public class ProductService {
                         .id(product.getBrand().getId())
                         .name(product.getBrand().getName())
                         .build())
-                .category(ProductListResponse.CategoryInfo.builder()
+                .category(product.getCategory() == null ? null : ProductListResponse.CategoryInfo.builder()   // 분류 제외 제품(영유아식·환자식·술)
                         .id(product.getCategory().getId())
                         .name(product.getCategory().getName())
                         .build())
@@ -899,7 +895,7 @@ public class ProductService {
                         .id(product.getBrand().getId())
                         .name(product.getBrand().getName())
                         .build())
-                .category(ProductDetailResponse.CategoryInfo.builder()
+                .category(product.getCategory() == null ? null : ProductDetailResponse.CategoryInfo.builder()   // 분류 제외 제품(영유아식·환자식·술)
                         .id(product.getCategory().getId())
                         .name(product.getCategory().getName())
                         .build())
@@ -943,7 +939,7 @@ public class ProductService {
                         .id(product.getBrand().getId())
                         .name(product.getBrand().getName())
                         .build())
-                .category(AdminProductPageResponse.CategoryInfo.builder()
+                .category(product.getCategory() == null ? null : AdminProductPageResponse.CategoryInfo.builder()   // 분류 제외 제품(영유아식·환자식·술)
                         .id(product.getCategory().getId())
                         .name(product.getCategory().getName())
                         .build())

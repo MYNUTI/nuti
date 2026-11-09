@@ -53,5 +53,19 @@ CREATE INDEX IF NOT EXISTS idx_products_name_chosung_trgm    ON products USING g
 
 CREATE INDEX IF NOT EXISTS idx_products_category_id ON products (category_id);
 
+-- ─── v3 제품 적재(refactor/v3-product) ─────────────────────────────────────────────────────
+-- 앱이 예전 엔티티로 products 를 이미 만든 DB 라면 ddl-auto=update 가 NOT NULL 을 풀지 않는다 — 분류 제외 제품(영유아식·환자식·술)은 category_id 가 비어 있다
+ALTER TABLE products ALTER COLUMN category_id DROP NOT NULL;
+-- 예전 products.barcode(단일·유니크) 열은 product_barcodes(N:M)로 옮겨 갔다. 옛 값이 있으면 옮긴다(없으면 0건). 열 삭제는 확인 후 따로
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_schema = 'v2' AND table_name = 'products' AND column_name = 'barcode') THEN
+        INSERT INTO product_barcodes (product_id, barcode, created_at)
+        SELECT id, barcode, NOW() FROM products WHERE barcode IS NOT NULL
+        ON CONFLICT (product_id, barcode) DO NOTHING;
+    END IF;
+END $$;
+
 -- [확인] 2차 테이블이 v2 에만 생겼는지 — public 의 테이블 수는 배포 전과 같아야 한다
 -- SELECT table_schema, COUNT(*) FROM information_schema.tables WHERE table_schema IN ('public', 'v2') GROUP BY 1;

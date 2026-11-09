@@ -16,13 +16,12 @@ import java.util.Optional;
 
 public interface ProductRepository extends JpaRepository<Product, Long>, JpaSpecificationExecutor<Product> {
 
-    Optional<Product> findByName(String name);
+    // 적재 기준 키 (v3 DATA_000)
+    Optional<Product> findByMasterId(String masterId);
 
-    // 바코드 스캔 조회 (3.1) — 13자리 정규화 값으로만 찾는다
-    Optional<Product> findByBarcode(String barcode);
-
-    // 바코드 중복 검사 — 다른 제품이 같은 바코드를 갖는가
-    boolean existsByBarcodeAndIdNot(String barcode, Long id);
+    // 바코드 스캔 조회 (3.1) — 13자리 정규화 값으로 찾는다. 바코드 하나에 제품 여러 개일 수 있다(N:M, product_barcodes)
+    @Query("SELECT b.product FROM ProductBarcode b WHERE b.barcode = :barcode ORDER BY b.product.id")
+    List<Product> findByBarcode(@Param("barcode") String barcode);
 
     // 부팅 시 status 백필 필요 여부
     long countByStatusIsNull();

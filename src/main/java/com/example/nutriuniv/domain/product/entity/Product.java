@@ -24,8 +24,9 @@ public class Product {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    // 소속 중분류 (v3 DATA_005) — 적재 파일의 category 코드. 영유아식·환자식·술·미분류는 비어 있다(검색·스캔에만 나온다)
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "category_id", nullable = false)
+    @JoinColumn(name = "category_id")
     private Category category;
 
     @ManyToOne(fetch = FetchType.LAZY)
@@ -38,6 +39,31 @@ public class Product {
     @OneToOne(mappedBy = "product", fetch = FetchType.LAZY)
     private CoupangLink coupangLink;
 
+    // 적재 기준 키 (v3 DATA_000) — 데이터 팀 master_id. 같은 키면 같은 제품으로 갱신하고, 이름으로 합치지 않는다. 운영자가 만든 제품은 비어 있을 수 있다
+    @Column(name = "master_id", length = 40, unique = true)
+    private String masterId;
+
+    // 품목제조보고번호 — 같이 저장만 한다(크롤링으로만 들어온 제품은 없을 수 있다)
+    @Column(name = "report_no", length = 20)
+    private String reportNo;
+
+    @Column(name = "source", length = 30)
+    private String source;
+
+    @Column(name = "maker", length = 255)
+    private String maker;
+
+    @Column(name = "ingredients", columnDefinition = "text")
+    private String ingredients;
+
+    // 생산 중단 표시 (적재 파일 is_discontinued) — 쿠팡 확인 결과와 합쳐 상태 5종을 정한다(ProductState)
+    @Column(name = "is_discontinued", nullable = false, columnDefinition = "boolean default false")
+    private boolean discontinued = false;
+
+    // 적재 파일 content_hash — 이전 적재와 같으면 그 행은 건너뛴다
+    @Column(name = "content_hash", length = 64)
+    private String contentHash;
+
     @Column(nullable = false, length = 255)
     private String name;
 
@@ -46,10 +72,6 @@ public class Product {
 
     @Column(name = "nutrition_score", precision = 5, scale = 2)
     private BigDecimal nutritionScore;
-
-    // 바코드 — 13자리 정규화 값만 저장 (기능명세서 3.1). 저장·조회 모두 BarcodeNormalizer 를 거친다. 없으면 null
-    @Column(length = 13, unique = true)
-    private String barcode;
 
     // 분석 완료 판정 (4.1): 판정 7종 *_per_100g 전부 있으면 ANALYZED, 아니면 INSUFFICIENT. 영양정보 저장 시와 등급 배치가 갱신
     @Enumerated(EnumType.STRING)
@@ -66,7 +88,7 @@ public class Product {
     @Column(name = "view_count", nullable = false)
     private int viewCount = 0;
 
-    // 수동 수정 보호 (기능명세서 10.4 「수정한 값이 다음 적재 때 덮어쓰이지 않게」) — TRUE 면 엑셀 재적재가 이 제품 행을 건너뛴다.
+    // 수동 수정 보호 (기능명세서 10.4 「수정한 값이 다음 적재 때 덮어쓰이지 않게」) — TRUE 면 재적재가 이 제품 행을 건너뛴다.
     // 관리자 상품·영양성분 수정과 제보 처리 완료(DONE)가 켠다. 해제는 PATCH /admin/products/{id} 의 manuallyCorrected=false
     @Column(name = "manually_corrected", nullable = false, columnDefinition = "boolean default false")
     private boolean manuallyCorrected = false;
@@ -106,6 +128,28 @@ public class Product {
         return p;
     }
 
+    /** 적재 파일로 새로 만든다 (v3 DATA_000). */
+    public static Product loaded(String masterId, String name) {
+        Product p = new Product();
+        p.masterId = masterId;
+        p.name = name;
+        return p;
+    }
+
+    /** 적재 파일 한 제품의 값을 그대로 덮는다 — 수동 수정 보호 제품은 호출하지 않는다. */
+    public void applyLoad(String name, Category category, Brand brand, String reportNo, String source,
+                          String maker, String ingredients, boolean discontinued, String contentHash) {
+        this.name = name;
+        this.category = category;
+        this.brand = brand;
+        this.reportNo = reportNo;
+        this.source = source;
+        this.maker = maker;
+        this.ingredients = ingredients;
+        this.discontinued = discontinued;
+        this.contentHash = contentHash;
+    }
+
     public void increaseViewCount() {
         this.viewCount++;
     }
@@ -127,16 +171,11 @@ public class Product {
         this.imageUrl = imageUrl;
     }
 
-    /** 정규화된 13자리(BarcodeNormalizer.normalize 결과)만 넣는다. null 이면 제거. */
-    public void updateBarcode(String normalized13) {
-        this.barcode = normalized13;
-    }
-
     public void updateStatus(ProductStatus status) {
         this.status = status;
     }
 
-    /** 관리자가 손으로 고쳤다 — 다음 엑셀 적재에서 이 행을 건너뛴다. */
+    /** 관리자가 손으로 고쳤다 — 다음 적재에서 이 행을 건너뛴다. */
     public void markManuallyCorrected() {
         this.manuallyCorrected = true;
         this.correctedAt = LocalDateTime.now();

@@ -10,6 +10,9 @@ public interface CategoryRepository extends JpaRepository<Category, Long> {
 
     Optional<Category> findByNameAndDepth(String name, int depth);
 
+    // 코드가 있는 분류 (시드·적재용)
+    List<Category> findAllByCodeIsNotNull();
+
     Optional<Category> findByNameAndDepthAndParent(String name, int depth, Category parent);
 
     // 트리 조회용
