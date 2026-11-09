@@ -24,19 +24,22 @@ public class SearchController {
     private final SearchSuggestionService searchSuggestionService;
 
     // GET /search
-    @Operation(summary = "검색 (기능명세서 6.1)",
-            description = "4-way: 이름 그대로 포함 · 철자 유사도(pg_trgm) · 공백/특수문자 제거 대조 · 초성(ㄷㄷㅂ→더단백) + 동의어 사전. " +
-                    "정확 일치와 비슷한 제품을 나눠서, 각각 등급순(영양정보 부족은 맨 뒤). 각 결과에 목표 기준 위반 문구(highlight). " +
-                    "0건도 200 — didYouMean(교정 결과가 실존하고 편집거리 ≤ 2일 때만)·sameCategoryTop(0건일 때 상위 5)·analysisRequest.available. " +
-                    "빈 검색어·30자 초과 400. goal 생략 시 내 목표(없으면 WEIGHT_LOSS). page 0부터, size 1~50.")
+    @Operation(summary = "이름 검색 (v3 SRCH_001)",
+            description = "이름 · 브랜드 · 공백 무시 · 초성 일치와 비슷한 이름(pg_trgm) · 동의어를 묶음 없이 한 목록으로 줍니다. " +
+                    "sort: SCORE(기본, 점수 높은 순 → 이름순, 점수 없음 맨 뒤) · POPULAR · CALORIES_LOW · PROTEIN_HIGH · SUGAR_LOW(100g·100mL당, 값 없음 맨 뒤). " +
+                    "검색어가 제품 이름 전체와 같으면 pinned(첫 페이지 맨 위 한 칸), 중분류 이름과 같으면 category. " +
+                    "카드는 두 목표 점수 · 등급과 goal 기준 태그 2개(영양소 정렬이면 sortValue). 단종 · 생산 중단도 배지로 포함. " +
+                    "goal 은 저장하지 않습니다(없으면 WEIGHT_LOSS). kcalBand 는 감량 점수 구간. 0건이면 didYouMean · sameCategoryTop. page 0부터, size 기본 20.")
     @GetMapping("/search")
     public ResponseEntity<CommonResponse<SearchResponse>> search(
             Actor actor,
             @Parameter(description = "검색어 (최대 30자)") @RequestParam(required = false) String q,
             @Parameter(description = "WEIGHT_LOSS | MUSCLE_GAIN (선택)") @RequestParam(required = false) String goal,
+            @Parameter(description = "하루 칼로리 구간 (1500·2000·2500·3000)") @RequestParam(required = false) Integer kcalBand,
+            @Parameter(description = "SCORE | POPULAR | CALORIES_LOW | PROTEIN_HIGH | SUGAR_LOW") @RequestParam(required = false) String sort,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return ResponseEntity.ok(CommonResponse.success(productSearchService.search(q, goal, page, size, actor)));
+        return ResponseEntity.ok(CommonResponse.success(productSearchService.search(q, goal, kcalBand, sort, page, size, actor)));
     }
 
     // GET /search/suggestions

@@ -6,7 +6,9 @@ import com.example.nutriuniv.common.security.Actor;
 import com.example.nutriuniv.common.security.Owner;
 import com.example.nutriuniv.domain.consent.service.OwnerResolver;
 import com.example.nutriuniv.domain.goal.entity.GoalType;
-import com.example.nutriuniv.domain.grade.service.GradeLookupService;
+import com.example.nutriuniv.domain.grade.calc.EerBand;
+import com.example.nutriuniv.domain.product.dto.ProductCard;
+import com.example.nutriuniv.domain.product.service.ProductCardService;
 import com.example.nutriuniv.domain.product.entity.Product;
 import com.example.nutriuniv.domain.product.repository.ProductRepository;
 import com.example.nutriuniv.domain.saved.dto.SaveResultResponse;
@@ -20,6 +22,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -37,49 +40,34 @@ public class SavedProductService {
     private final SavedProductRepository savedProductRepository;
     private final ProductRepository productRepository;
     private final OwnerResolver ownerResolver;
-    private final GradeLookupService gradeLookupService;
+    private final ProductCardService cardService;
 
     // ── GET /me/saved-products ───────────────────────────────────────────────────────
 
     @Transactional(readOnly = true)
-    public SavedProductPageResponse getSaved(Actor actor, int page, int size) {
+    public SavedProductPageResponse getSaved(Actor actor, String goalParam, Integer kcalBand, int page, int size) {
         if (page < 1 || size < 1) {
             throw new CustomException(ErrorCode.INVALID_QUERY_PARAM, "page, size는 1 이상이어야 합니다.");
         }
         Owner owner = ownerResolver.resolve(actor);
+        GoalType goal = goalParam == null || goalParam.isBlank() ? GoalType.DEFAULT : GoalType.from(goalParam);
+        EerBand band = EerBand.ofOrDefault(kcalBand);
 
         PageRequest pageable = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "createdAt"));
         Page<SavedProduct> saved = owner.isUser()
                 ? savedProductRepository.findByUserIdAndProductIsActiveTrue(owner.userId(), pageable)
                 : savedProductRepository.findByAnonymousIdAndProductIsActiveTrue(owner.anonymousId(), pageable);
 
-        // 목표에 맞는 등급 일괄 조회 (N+1 방지)
-        GoalType goal = gradeLookupService.resolveGoalType(owner);
-        List<Long> productIds = saved.getContent().stream().map(s -> s.getProduct().getId()).toList();
-        Map<Long, String> gradeMap = gradeLookupService.lookupGrades(productIds, goal);
+        List<Long> ids = saved.getContent().stream().map(s -> s.getProduct().getId()).toList();
+        Map<Long, ProductCard> cards = new HashMap<>();
+        cardService.withBetter(cardService.cards(ids, goal, band, owner, null), goal, band)
+                .forEach(c -> cards.put(c.productId(), c));
 
         List<SavedProductPageResponse.Item> items = saved.getContent().stream()
-                .map(s -> {
-                    Product p = s.getProduct();
-                    String grade = gradeMap.get(p.getId());
-                    return SavedProductPageResponse.Item.builder()
-                            .productId(p.getId())
-                            .name(p.getName())
-                            .imageUrl(p.getImageUrl())
-                            // 제품 상태 컬럼(ANALYZED/INSUFFICIENT)은 핵심 루프 브랜치에서 도입 — 그때까지 등급 유무로 대신한다
-                            .status(grade != null ? "ANALYZED" : "INSUFFICIENT")
-                            .grade(grade)
-                            .label(gradeLookupService.label(goal, grade))
-                            .savedAt(s.getCreatedAt())
-                            .build();
-                })
+                .filter(s -> cards.containsKey(s.getProduct().getId()))
+                .map(s -> new SavedProductPageResponse.Item(cards.get(s.getProduct().getId()), s.getCreatedAt()))
                 .toList();
-
-        return SavedProductPageResponse.builder()
-                .items(items)
-                .totalCount(saved.getTotalElements())
-                .hasNext(saved.hasNext())
-                .build();
+        return new SavedProductPageResponse(goal.name(), band.kcal(), saved.getTotalElements(), saved.hasNext(), items);
     }
 
     // ── POST /me/saved-products/{productId} ──────────────────────────────────────────

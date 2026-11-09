@@ -96,7 +96,7 @@ public class AdminMetricsService {
                         .ratio(ratio(r.analyzedCount(), r.totalCount()))
                         .gradeACount(r.aCount())
                         .gradeDCount(r.dCount())
-                        .rankingGatePassed(RankingGate.passes(r.analyzedCount(), r.aCount(), r.dCount()))
+                        .rankingGatePassed(RankingGate.passes(r.analyzedCount()))
                         .build())
                 .toList();
 

@@ -4,6 +4,7 @@ import com.example.nutriuniv.common.exception.CustomException;
 import com.example.nutriuniv.common.exception.ErrorCode;
 import com.example.nutriuniv.domain.product.entity.ProductLoad;
 import com.example.nutriuniv.domain.product.repository.ProductLoadRepository;
+import com.example.nutriuniv.domain.ranking.service.ChipStatsService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -24,6 +25,7 @@ public class ProductLoadService {
     static final Duration STALE_AFTER = Duration.ofHours(2);
 
     private final ProductLoadRepository loadRepository;
+    private final ChipStatsService chipStatsService;
 
     @Transactional(readOnly = true)
     public boolean isLoading() {
@@ -41,6 +43,7 @@ public class ProductLoadService {
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void finish(Long loadId, int total, int created, int updated, int unchanged, int protectedRows, int failed) {
         loadRepository.findById(loadId).ifPresent(l -> l.finish(total, created, updated, unchanged, protectedRows, failed));
+        chipStatsService.invalidate();   // 칩 개수 · 게이트 · 업데이트 시각을 다음 조회에서 다시 센다
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
