@@ -4,219 +4,194 @@ import com.example.nutriuniv.common.exception.CustomException;
 import com.example.nutriuniv.common.exception.ErrorCode;
 import com.example.nutriuniv.common.security.Actor;
 import com.example.nutriuniv.common.security.Owner;
-import com.example.nutriuniv.domain.consent.dto.ConsentRequest;
-import com.example.nutriuniv.domain.consent.dto.ConsentResponse;
-import com.example.nutriuniv.domain.consent.dto.HealthConsentResponse;
-import com.example.nutriuniv.domain.consent.entity.Consent;
-import com.example.nutriuniv.domain.consent.entity.ConsentAction;
-import com.example.nutriuniv.domain.consent.entity.ConsentType;
+import com.example.nutriuniv.domain.body.service.BodyProfileService;
+import com.example.nutriuniv.domain.consent.dto.ConsentChangeRequest;
+import com.example.nutriuniv.domain.consent.dto.ConsentItemsResponse;
+import com.example.nutriuniv.domain.consent.dto.ConsentsResponse;
+import com.example.nutriuniv.domain.consent.entity.ConsentItemCode;
+import com.example.nutriuniv.domain.consent.entity.ConsentRecord;
 import com.example.nutriuniv.domain.consent.entity.Policy;
 import com.example.nutriuniv.domain.consent.entity.PolicyType;
-import com.example.nutriuniv.domain.consent.repository.ConsentRepository;
+import com.example.nutriuniv.domain.consent.repository.ConsentRecordRepository;
 import com.example.nutriuniv.domain.consent.repository.PolicyRepository;
+import com.example.nutriuniv.domain.goal.entity.GoalType;
 import com.example.nutriuniv.domain.goal.service.GoalService;
-import com.example.nutriuniv.domain.user.entity.User;
-import com.example.nutriuniv.domain.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.Arrays;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.HexFormat;
-import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
- * 개인정보 동의(1.2)·건강정보 동의(1.3) — <b>로그인한 계정만</b>.
- *
+ * 동의 (v3 ACCT_004 · ACCT_007 · ONB_009) — 계정만 동의한다.
  * <ul>
- *   <li>v3(ACCT_001·ACCT_004): 기기 ID 는 동의 없이 쓰고, 동의는 가입(계정)에서만 받는다. 그래서 익명 ID 를 발급하지도, 익명 소유 동의를 남기지도 않는다.</li>
- *   <li>같은 버전 재요청은 200 멱등. 다른 버전이면 재동의 행 추가.</li>
- *   <li>동의 기록은 append-only. IP 는 해시만.</li>
- *   <li>건강정보 동의는 개인정보 동의와 저장 분리. 철회 시 정보 삭제(플래그 off + REVOKE 행) + 서버에 저장한 목표 삭제.</li>
+ *   <li>항목 6개(필수 3 · 선택 3)를 항목마다 기록한다: 동의 여부 · 시각 · 약관 판 · 처리방침 판 · 동의문 판. 추가만 하고 고치지 않는다</li>
+ *   <li>필수 항목은 가입 때만 받고 바꿀 수 없다(바꾸려면 계정 삭제). 선택 항목은 언제든 켜고 끈다</li>
+ *   <li>철회하면 그 동의로 저장한 데이터를 바로 지운다 — 목표 저장: 계정 목표 / 몸 정보: 몸 정보 · 칼로리 구간 / 광고성: 기록만</li>
+ *   <li>IP 는 원본 대신 SHA-256 해시</li>
  * </ul>
- * 동의 7항목·가입 2단계(ACCT_004)로 바꾸는 작업은 계정 브랜치에서 한다.
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class ConsentService {
 
-    private final ConsentRepository consentRepository;
+    private final ConsentRecordRepository recordRepository;
     private final PolicyRepository policyRepository;
-    private final UserRepository userRepository;
+    private final ConsentReader consentReader;
     private final GoalService goalService;
+    private final BodyProfileService bodyProfileService;
 
-    // 필수 동의 항목 코드 — 항목 목록은 팀 확정 사항이라 설정으로 뺐다. 만 14세 확인은 register 폐지로 여기서 받는다.
-    @Value("${app.consent.required-items:PERSONAL_INFO,AGE_OVER_14}")
-    private String requiredItemsCsv;
+    public record Versions(String terms, String privacy) {}
 
-    // ── POST /onboarding/consent (개인정보 동의 — 로그인한 계정) ──────────────────────
+    // ── 가입 (AuthService 가 부른다) ────────────────────────────────────────────────
 
+    /** 가입 동의 6항목을 한 번에 기록. 필수 항목 검사는 호출부(가입)가 먼저 한다. */
     @Transactional
-    public ConsentResponse consentPrivacy(Actor actor, ConsentRequest request, String userAgent) {
-        Owner owner = requireUser(actor);
-        String version = checkPolicyVersion(PolicyType.PRIVACY, request.getPolicyVersion());
-        Set<String> items = normalizeItems(request.getAgreedItems());
-        requireItems(items);
-
-        Optional<Consent> same = latest(owner, ConsentType.PRIVACY)
-                .filter(c -> c.getAction() == ConsentAction.AGREE && version.equals(c.getPolicyVersion()));
-        if (same.isPresent()) {
-            return ConsentResponse.of(same.get().getCreatedAt());
+    public void recordSignup(Long userId, Map<ConsentItemCode, Boolean> agreements, Versions versions,
+                             Map<ConsentItemCode, String> documentVersions, String ip, String userAgent) {
+        LocalDateTime now = LocalDateTime.now();
+        String ipHash = sha256(ip);
+        List<ConsentRecord> rows = new ArrayList<>();
+        for (ConsentItemCode item : ConsentItemCode.values()) {
+            boolean agreed = Boolean.TRUE.equals(agreements.get(item));
+            rows.add(ConsentRecord.of(userId, item, agreed, versions.terms(), versions.privacy(),
+                    documentVersions == null ? null : documentVersions.get(item), ipHash, userAgent, now));
         }
-        Consent saved = consentRepository.save(
-                Consent.agree(owner, ConsentType.PRIVACY, version, items, sha256(actor.ipAddress()), userAgent));
-        userRepository.findById(actor.userId()).ifPresent(User::agreePersonalInfo);
-        return ConsentResponse.of(saved.getCreatedAt());
-    }
-
-    // ── /me/health-consent (건강정보 동의 3종) ──────────────────────────────────────
-
-    @Transactional
-    public HealthConsentResponse agreeHealth(Actor actor, ConsentRequest request, String userAgent) {
-        Owner owner = requireUser(actor);
-        String version = checkPolicyVersion(PolicyType.HEALTH, request.getPolicyVersion());
-        Set<String> items = normalizeItems(request.getAgreedItems());
-
-        Optional<Consent> same = latest(owner, ConsentType.HEALTH)
-                .filter(c -> c.getAction() == ConsentAction.AGREE && version.equals(c.getPolicyVersion()));
-        if (same.isPresent()) {
-            return HealthConsentResponse.agreed(same.get().getCreatedAt());   // 멱등
-        }
-        Consent saved = consentRepository.save(
-                Consent.agree(owner, ConsentType.HEALTH, version, items, sha256(actor.ipAddress()), userAgent));
-        setHealthFlag(owner, true);
-        return HealthConsentResponse.agreed(saved.getCreatedAt());
-    }
-
-    @Transactional(readOnly = true)
-    public HealthConsentResponse getHealth(Actor actor) {
-        Owner owner = requireUser(actor);
-        Optional<Consent> last = latest(owner, ConsentType.HEALTH);
-        if (last.isPresent() && last.get().getAction() == ConsentAction.AGREE) {
-            return HealthConsentResponse.agreed(last.get().getCreatedAt());
-        }
-        return HealthConsentResponse.notAgreed();                          // 「동의 안 함」은 정상 응답
-    }
-
-    @Transactional
-    public HealthConsentResponse revokeHealth(Actor actor, String userAgent) {
-        Owner owner = requireUser(actor);
-        Optional<Consent> last = latest(owner, ConsentType.HEALTH);
-        if (last.isEmpty() || last.get().getAction() == ConsentAction.REVOKE) {
-            return HealthConsentResponse.notAgreed();                      // 이미 철회/미동의 → 멱등
-        }
-        consentRepository.save(Consent.revoke(owner, ConsentType.HEALTH, last.get().getPolicyVersion(),
-                sha256(actor.ipAddress()), userAgent));
-        setHealthFlag(owner, false);
-        goalService.clearSavedGoal(owner);     // 서버에 저장한 목표는 건강정보 동의가 전제 → 철회 시 지운다
-        return HealthConsentResponse.notAgreed();
-    }
-
-    // ── 조회 헬퍼 (bootstrap 등에서 사용) — 기기 ID 소유자는 동의가 없으므로 false ─────────
-
-    @Transactional(readOnly = true)
-    public boolean isHealthConsented(Owner owner) {
-        if (!owner.isUser()) {
-            return false;
-        }
-        return latest(owner, ConsentType.HEALTH)
-                .map(c -> c.getAction() == ConsentAction.AGREE)
-                .orElse(false);
-    }
-
-    @Transactional(readOnly = true)
-    public boolean isPrivacyConsented(Owner owner) {
-        if (!owner.isUser()) {
-            return false;
-        }
-        return latest(owner, ConsentType.PRIVACY)
-                .map(c -> c.getAction() == ConsentAction.AGREE)
-                .orElse(false);
-    }
-
-    /** 현재 개인정보 처리방침 버전. 아직 정책 행이 없으면 null. */
-    @Transactional(readOnly = true)
-    public String currentPolicyVersion() {
-        return policyRepository.findByPolicyTypeAndIsCurrentTrue(PolicyType.PRIVACY).map(Policy::getVersion).orElse(null);
-    }
-
-    // ── 내부 ──────────────────────────────────────────────────────────────────────
-
-    /** 동의 관리는 로그인 전용(ACCT_001 「로그인이 필요한 요청은 알림, 동의 관리, 로그아웃, 계정 삭제뿐」). */
-    private static Owner requireUser(Actor actor) {
-        if (!actor.isLoggedIn()) {
-            throw new CustomException(ErrorCode.UNAUTHORIZED);
-        }
-        return Owner.ofUser(actor.userId());
-    }
-
-    private Optional<Consent> latest(Owner owner, ConsentType type) {
-        return consentRepository.findTopByUserIdAndConsentTypeOrderByCreatedAtDesc(owner.userId(), type);
-    }
-
-    private void setHealthFlag(Owner owner, boolean agreed) {
-        userRepository.findById(owner.userId()).ifPresent(u -> {
-            if (agreed) u.agreeHealthInfo(); else u.revokeHealthInfo();
-        });
+        recordRepository.saveAll(rows);
     }
 
     /**
-     * 요청의 policyVersion 이 현재 버전과 다르면 409 POLICY_VERSION_CONFLICT.
-     * 정책 행이 아직 없는 환경(초기 개발)에서는 요청 버전을 그대로 받아들이고 경고만 남긴다 — db/manual SQL 로 시드할 것.
+     * 요청의 약관 · 처리방침 판이 지금 판과 같은지. 다르면 409 POLICY_VERSION_CONFLICT.
+     * 정책 행이 아직 없는 환경이면 요청 값을 그대로 쓴다(경고만).
      */
-    private String checkPolicyVersion(PolicyType type, String requested) {
-        if (requested == null || requested.isBlank()) {
-            throw new CustomException(ErrorCode.BAD_REQUEST, "policyVersion은 필수입니다.");
+    @Transactional(readOnly = true)
+    public Versions checkVersions(String termsVersion, String privacyVersion) {
+        return new Versions(check(PolicyType.TERMS, termsVersion), check(PolicyType.PRIVACY, privacyVersion));
+    }
+
+    // ── GET /me/consents ──────────────────────────────────────────────────────────
+
+    @Transactional(readOnly = true)
+    public ConsentsResponse list(Actor actor) {
+        return response(requireUser(actor));
+    }
+
+    // ── PUT /me/consents/{item} ───────────────────────────────────────────────────
+
+    @Transactional
+    public ConsentsResponse change(Actor actor, String itemParam, ConsentChangeRequest req, String userAgent) {
+        Long userId = requireUser(actor);
+        ConsentItemCode item = ConsentItemCode.from(itemParam);
+        if (item.required()) {
+            throw new CustomException(ErrorCode.BAD_REQUEST, "필수 동의는 바꿀 수 없어요. 그만 쓰려면 계정을 삭제해 주세요.");
         }
-        Optional<Policy> current = policyRepository.findByPolicyTypeAndIsCurrentTrue(type);
-        if (current.isEmpty()) {
-            log.warn("[Consent] {} 정책의 현재 버전이 DB 에 없음 — 요청 버전 '{}' 을(를) 그대로 기록", type, requested);
-            return requested.trim();
+        if (req == null || req.agreed() == null) {
+            throw new CustomException(ErrorCode.BAD_REQUEST, "agreed(true · false)는 필수입니다.");
         }
-        if (!current.get().getVersion().equals(requested.trim())) {
+        boolean agreed = req.agreed();
+        GoalType goal = agreed && item == ConsentItemCode.GOAL_ACCOUNT && req.goal() != null && !req.goal().isBlank()
+                ? GoalType.from(req.goal()) : null;                     // 허용값 외 400 — 기록 전에 검사
+
+        boolean now = consentReader.isAgreed(userId, item);
+        if (now != agreed) {
+            Versions v = currentVersions();
+            recordRepository.save(ConsentRecord.of(userId, item, agreed, v.terms(), v.privacy(),
+                    blankToNull(req.documentVersion()), sha256(actor.ipAddress()), userAgent, LocalDateTime.now()));
+        }
+
+        Owner owner = Owner.ofUser(userId);
+        if (!agreed) {
+            switch (item) {
+                case GOAL_ACCOUNT -> goalService.clearSavedGoal(owner);      // 기기 목표는 기기에 남는다
+                case BODY_PROFILE -> bodyProfileService.deleteFor(userId);  // 칼로리 구간은 기본 2,000 으로
+                default -> { }
+            }
+        } else {
+            if (goal != null) goalService.changeGoal(owner, goal);
+            if (item == ConsentItemCode.BODY_PROFILE && req.bodyProfile() != null) {
+                bodyProfileService.saveFor(userId, req.bodyProfile());
+            }
+        }
+        return response(userId);
+    }
+
+    // ── GET /meta/consent-items ───────────────────────────────────────────────────
+
+    @Transactional(readOnly = true)
+    public ConsentItemsResponse items() {
+        Versions v = currentVersions();
+        List<ConsentItemsResponse.Item> items = new ArrayList<>();
+        for (ConsentItemCode c : ConsentItemCode.values()) items.add(new ConsentItemsResponse.Item(c.name(), c.label(), c.required()));
+        return new ConsentItemsResponse(v.terms(), v.privacy(), items);
+    }
+
+    /** 지금 처리방침 판 (bootstrap). 정책 행이 없으면 null. */
+    @Transactional(readOnly = true)
+    public String currentPolicyVersion() {
+        return currentVersions().privacy();
+    }
+
+    // ── 내부 ─────────────────────────────────────────────────────────────────────
+
+    private ConsentsResponse response(Long userId) {
+        Map<ConsentItemCode, ConsentRecord> latest = consentReader.latest(userId);
+        List<ConsentsResponse.Item> items = new ArrayList<>();
+        for (ConsentItemCode c : ConsentItemCode.values()) {
+            ConsentRecord r = latest.get(c);
+            items.add(new ConsentsResponse.Item(c.name(), c.label(), c.required(), r != null && r.isAgreed(),
+                    r == null ? null : r.getCreatedAt(), r == null ? null : r.getTermsVersion(),
+                    r == null ? null : r.getPrivacyVersion(), r == null ? null : r.getDocumentVersion()));
+        }
+        return new ConsentsResponse(items);
+    }
+
+    /** 동의 관리는 로그인 전용(ACCT_001). */
+    private static Long requireUser(Actor actor) {
+        if (!actor.isLoggedIn()) throw new CustomException(ErrorCode.UNAUTHORIZED);
+        return actor.userId();
+    }
+
+    private Versions currentVersions() {
+        return new Versions(current(PolicyType.TERMS).map(Policy::getVersion).orElse(null),
+                current(PolicyType.PRIVACY).map(Policy::getVersion).orElse(null));
+    }
+
+    private Optional<Policy> current(PolicyType type) {
+        return policyRepository.findByPolicyTypeAndIsCurrentTrue(type);
+    }
+
+    private String check(PolicyType type, String requested) {
+        String req = blankToNull(requested);
+        Optional<Policy> cur = current(type);
+        if (cur.isEmpty()) {
+            if (req != null) log.warn("[Consent] {} 정책의 현재 판이 DB 에 없음 — 요청 판 '{}' 을(를) 그대로 기록", type, req);
+            return req;
+        }
+        if (req != null && !cur.get().getVersion().equals(req)) {
             throw new CustomException(ErrorCode.POLICY_VERSION_CONFLICT,
-                    "처리방침 버전이 바뀌었습니다. 현재 버전: " + current.get().getVersion());
+                    (type == PolicyType.TERMS ? "약관" : "처리방침") + " 판이 바뀌었습니다. 지금 판: " + cur.get().getVersion());
         }
-        return current.get().getVersion();
+        return cur.get().getVersion();
     }
 
-    private Set<String> normalizeItems(List<String> raw) {
-        if (raw == null) {
-            return new LinkedHashSet<>();
-        }
-        return raw.stream()
-                .filter(s -> s != null && !s.isBlank())
-                .map(s -> s.trim().toUpperCase())
-                .collect(Collectors.toCollection(LinkedHashSet::new));
+    private static String blankToNull(String s) {
+        return s == null || s.isBlank() ? null : s.trim();
     }
 
-    private void requireItems(Set<String> items) {
-        List<String> missing = Arrays.stream(requiredItemsCsv.split(","))
-                .map(String::trim).filter(s -> !s.isEmpty()).map(String::toUpperCase)
-                .filter(code -> !items.contains(code))
-                .toList();
-        if (!missing.isEmpty()) {
-            throw new CustomException(ErrorCode.BAD_REQUEST, "필수 동의 항목이 누락되었습니다: " + String.join(", ", missing));
-        }
-    }
-
-    private static String sha256(String value) {
-        if (value == null || value.isBlank()) {
-            return null;
-        }
+    public static String sha256(String value) {
+        if (value == null || value.isBlank()) return null;
         try {
-            byte[] digest = MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8));
-            return HexFormat.of().formatHex(digest);
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8)));
         } catch (NoSuchAlgorithmException e) {
             return null;
         }

@@ -84,11 +84,11 @@ public class MeService {
         if (owner != null) {
             if (owner.isUser()) {
                 recordCount    = savedProductRepository.countByUserId(owner.userId());
-                requestCount   = analysisRequestEventRepository.countByUserId(owner.userId());
+                requestCount   = analysisRequestEventRepository.countDistinctRequestsByUserId(owner.userId());
                 publishedCount = analysisRequestEventRepository.countDistinctRequestsByUserIdAndStatus(owner.userId(), AnalysisRequestStatus.DONE);
             } else {
                 recordCount    = savedProductRepository.countByAnonymousId(owner.anonymousId());
-                requestCount   = analysisRequestEventRepository.countByAnonymousId(owner.anonymousId());
+                requestCount   = analysisRequestEventRepository.countDistinctRequestsByAnonymousId(owner.anonymousId());
                 publishedCount = analysisRequestEventRepository.countDistinctRequestsByAnonymousIdAndStatus(owner.anonymousId(), AnalysisRequestStatus.DONE);
             }
         }
@@ -115,10 +115,10 @@ public class MeService {
 
     @Transactional
     public MeSettingsResponse update(Actor actor, MeSettingsUpdateRequest request) {
-        Owner owner = ownerResolver.resolve(actor);                      // 기기 ID 없음 → 400
         if (request.getGoal() == null || request.getGoal().isBlank()) {
             throw new CustomException(ErrorCode.BAD_REQUEST, "수정할 항목이 없습니다.");
         }
+        Owner owner = goalService.requireGoalConsent(actor);              // 계정 목표 저장은 로그인 + 동의 (v3 ONB_009)
         goalService.changeGoal(owner, GoalType.from(request.getGoal()));   // 허용값 외 400
         return buildSettings(owner);
     }

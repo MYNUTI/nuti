@@ -6,16 +6,23 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-/** 기능명세서 10.4 — 제보 유형 4종, 코드·한글 이름 둘 다 허용. */
+/** v3 CTRB_008 — 제보 항목 4종. 코드 · 한글 이름 · 옛 값(NAME · IMAGE) 모두 받는다. */
 class ReportTypeTest {
 
     @Test
     void 코드와_한글_이름() {
         assertEquals(ReportType.NUTRITION, ReportType.from("NUTRITION"));
-        assertEquals(ReportType.NUTRITION, ReportType.from("영양정보"));
-        assertEquals(ReportType.NAME, ReportType.from(" name "));
-        assertEquals(ReportType.IMAGE, ReportType.from("이미지"));
+        assertEquals(ReportType.WRONG_PRODUCT, ReportType.from(" wrong_product "));
+        assertEquals(ReportType.NAME_OR_IMAGE, ReportType.from("이름이나 사진이 달라요"));
         assertEquals(ReportType.OTHER, ReportType.from("기타"));
+    }
+
+    @Test
+    void 옛_값은_새_항목으로() {
+        assertEquals(ReportType.NAME_OR_IMAGE, ReportType.from("NAME"));
+        assertEquals(ReportType.NAME_OR_IMAGE, ReportType.from(" image "));
+        assertEquals(ReportType.NAME_OR_IMAGE, ReportType.from("제품명"));
+        assertEquals(ReportType.NUTRITION, ReportType.from("영양정보"));
     }
 
     @Test
@@ -29,8 +36,15 @@ class ReportTypeTest {
     @Test
     void 기타는_데이터_수정이_아니다() {
         assertTrue(ReportType.NUTRITION.correctsData());
-        assertTrue(ReportType.NAME.correctsData());
-        assertTrue(ReportType.IMAGE.correctsData());
+        assertTrue(ReportType.WRONG_PRODUCT.correctsData());
+        assertTrue(ReportType.NAME_OR_IMAGE.correctsData());
         assertFalse(ReportType.OTHER.correctsData());
+    }
+
+    @Test
+    void 제보_상태_옛_PROCESSING_은_확인_중() {
+        assertEquals(ReportStatus.RECEIVED, ReportStatus.from("processing"));
+        assertTrue(ReportStatus.REJECTED.isTerminal());
+        assertFalse(ReportStatus.RECEIVED.isTerminal());
     }
 }

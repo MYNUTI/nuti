@@ -42,6 +42,15 @@ public enum EerBand {
         throw new IllegalArgumentException("지원하지 않는 열량구간: " + kcal);
     }
 
+    /** 하루 필요 칼로리 → 가장 가까운 구간 (ACCT_010). 정확히 중간(1,750 · 2,250 · 2,750)이면 위 구간, 1,500 미만 · 3,000 초과는 양 끝. */
+    public static EerBand nearest(int dailyKcal) {
+        EerBand best = values()[0];
+        for (EerBand b : values()) {
+            if (Math.abs(dailyKcal - b.kcal) <= Math.abs(dailyKcal - best.kcal)) best = b;
+        }
+        return best;
+    }
+
     /** 요청 값 → 구간. 없거나 4종 밖이면 2000 (CORE_008). */
     public static EerBand ofOrDefault(Integer kcal) {
         if (kcal == null) return DEFAULT;

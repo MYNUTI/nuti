@@ -1,5 +1,6 @@
 package com.example.nutriuniv.domain.history.service;
 
+import com.example.nutriuniv.domain.body.service.KcalBandResolver;
 import com.example.nutriuniv.common.exception.CustomException;
 import com.example.nutriuniv.common.exception.ErrorCode;
 import com.example.nutriuniv.common.security.Actor;
@@ -45,6 +46,7 @@ public class ViewHistoryService {
     public static final int MAX_PAGE_SIZE = 50;
     public static final List<String> GRADES = List.of("A", "B", "C", "D", "E", "NONE");
 
+    private final KcalBandResolver kcalBandResolver;
     private final ViewHistoryRepository repository;
     private final OwnerResolver ownerResolver;
     private final ProductCardService cardService;
@@ -68,7 +70,7 @@ public class ViewHistoryService {
         }
         Owner owner = ownerResolver.resolve(actor);
         GoalType goal = goalParam == null || goalParam.isBlank() ? GoalType.DEFAULT : GoalType.from(goalParam);
-        EerBand band = EerBand.ofOrDefault(kcalBand);
+        EerBand band = kcalBandResolver.resolve(actor, kcalBand);
         List<String> grades = grades(gradeParam);
 
         List<Object> args = new ArrayList<>(List.of(goal.name(), EerBand.slot(goal, band)));

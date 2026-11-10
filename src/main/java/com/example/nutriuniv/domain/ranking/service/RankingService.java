@@ -1,5 +1,6 @@
 package com.example.nutriuniv.domain.ranking.service;
 
+import com.example.nutriuniv.domain.body.service.KcalBandResolver;
 import com.example.nutriuniv.common.exception.CustomException;
 import com.example.nutriuniv.common.exception.ErrorCode;
 import com.example.nutriuniv.common.security.Actor;
@@ -44,6 +45,7 @@ public class RankingService {
     public static final int OVERVIEW_TOP = 3;
     public static final int TOP_BRANDS = 8;
 
+    private final KcalBandResolver kcalBandResolver;
     private final CategoryRepository categoryRepository;
     private final ChipStatsService chipStats;
     private final ProductListQuery listQuery;
@@ -86,7 +88,7 @@ public class RankingService {
         }
         Category chip = openChip(code);
         GoalType goal = goal(goalParam);
-        EerBand band = EerBand.ofOrDefault(kcalBand);
+        EerBand band = kcalBandResolver.resolve(actor, kcalBand);
         ListSort sort = ListSort.from(sortParam);
         Owner owner = ownerResolver.resolveOrNull(actor);
 
@@ -106,7 +108,7 @@ public class RankingService {
         Category major = tree.majors().stream().filter(m -> m.getCode().equals(majorCode)).findFirst()
                 .orElseThrow(() -> new CustomException(ErrorCode.RESOURCE_NOT_FOUND, "없는 대분류입니다."));
         GoalType goal = goal(goalParam);
-        EerBand band = EerBand.ofOrDefault(kcalBand);
+        EerBand band = kcalBandResolver.resolve(actor, kcalBand);
         Owner owner = ownerResolver.resolveOrNull(actor);
 
         List<Group> groups = new ArrayList<>();

@@ -1,10 +1,11 @@
 package com.example.nutriuniv.domain.goal.service;
 
+import com.example.nutriuniv.common.exception.CustomException;
+import com.example.nutriuniv.common.exception.ErrorCode;
 import com.example.nutriuniv.common.security.Actor;
 import com.example.nutriuniv.common.security.Owner;
-import com.example.nutriuniv.domain.consent.entity.ConsentAction;
-import com.example.nutriuniv.domain.consent.entity.ConsentType;
-import com.example.nutriuniv.domain.consent.repository.ConsentRepository;
+import com.example.nutriuniv.domain.consent.entity.ConsentItemCode;
+import com.example.nutriuniv.domain.consent.service.ConsentReader;
 import com.example.nutriuniv.domain.consent.service.OwnerResolver;
 import com.example.nutriuniv.domain.goal.dto.GoalResponse;
 import com.example.nutriuniv.domain.goal.dto.GoalUpdateRequest;
@@ -25,15 +26,15 @@ import java.util.Optional;
 /**
  * 목표 조회·설정 (기능명세서 2.4).
  *
- * <p>ConsentService 가 건강정보 철회 시 clearSavedGoal() 을 부르므로 이 서비스는 ConsentService 에 의존하지 않는다
- * (순환 방지) — 건강정보 동의 여부는 ConsentRepository 로 직접 본다.
+ * <p>v3(ONB_004 · ONB_009 · ACCT_002): 목표는 기기에 둔다. 계정에 저장하는 것은 「목표 계정 저장」에 동의한 로그인 계정뿐이다.
+ * 동의 여부는 ConsentReader 로 본다(ConsentService 가 철회 때 clearSavedGoal() 을 부르므로 순환을 피한다).
  */
 @Service
 @RequiredArgsConstructor
 public class GoalService {
 
     private final UserGoalRepository userGoalRepository;
-    private final ConsentRepository consentRepository;
+    private final ConsentReader consentReader;
     private final OwnerResolver ownerResolver;
     private final GradeLookupService gradeLookupService;
     private final ProductRepository productRepository;
@@ -48,7 +49,7 @@ public class GoalService {
         return GoalResponse.builder()
                 .goal(goal.name())
                 .label(goal.label())
-                .healthConsented(owner != null && isHealthConsented(owner))
+                .goalAccountConsented(consentReader.isAgreed(owner, ConsentItemCode.GOAL_ACCOUNT))
                 .appliedAt(saved.map(UserGoal::getAppliedAt).orElse(null))
                 .build();
     }
@@ -57,7 +58,7 @@ public class GoalService {
 
     @Transactional
     public GoalUpdateResponse setGoal(Actor actor, GoalUpdateRequest request) {
-        Owner owner = ownerResolver.resolve(actor);                 // 기기 ID 없음 → 400
+        Owner owner = requireGoalConsent(actor);                    // 로그인 401 · 동의 403
         GoalType goal = GoalType.from(request.getGoal());          // 허용값 외 → 400
 
         GoalType before = find(owner).map(UserGoal::getGoal).orElse(GoalType.DEFAULT);
@@ -74,10 +75,7 @@ public class GoalService {
                 .build();
     }
 
-    /**
-     * 목표 저장 (설정 화면 PATCH /me/settings 도 이걸 쓴다 — 재계산 응답 없음).
-     * v3(ONB_004·ONB_009): 목표를 고르는 데는 동의가 필요 없다. 동의는 목표를 계정에 저장할 때만이고, 그 구조는 등급 브랜치에서 바꾼다.
-     */
+    /** 계정에 목표 저장 — 「목표 계정 저장」 동의는 호출부가 확인한다(설정 화면 · 가입 · 동의 다시 켜기). */
     @Transactional
     public UserGoal changeGoal(Owner owner, GoalType goal) {
         UserGoal ug = find(owner).orElse(null);
@@ -88,7 +86,7 @@ public class GoalService {
         return ug;
     }
 
-    /** 건강정보 동의 철회 시 서버에 저장한 목표를 지운다 (ConsentService 에서 호출) — 목표는 기기에 남는다(v3). */
+    /** 「목표 계정 저장」 철회 · 계정 삭제 때 계정 목표를 지운다 — 기기 목표는 기기에 남는다. */
     @Transactional
     public void clearSavedGoal(Owner owner) {
         find(owner).ifPresent(userGoalRepository::delete);
@@ -108,13 +106,16 @@ public class GoalService {
                 : userGoalRepository.findByAnonymousId(owner.anonymousId());
     }
 
-    /** 동의는 계정만 한다 — 기기 ID 소유자는 false. */
-    private boolean isHealthConsented(Owner owner) {
-        if (!owner.isUser()) {
-            return false;
+    /** 목표를 계정에 저장할 수 있는 주체 — 로그인(401) + 「목표 계정 저장」 동의(403 GOAL_CONSENT_REQUIRED). */
+    public Owner requireGoalConsent(Actor actor) {
+        if (!actor.isLoggedIn()) {
+            throw new CustomException(ErrorCode.UNAUTHORIZED);
         }
-        return consentRepository.findTopByUserIdAndConsentTypeOrderByCreatedAtDesc(owner.userId(), ConsentType.HEALTH)
-                .map(c -> c.getAction() == ConsentAction.AGREE).orElse(false);
+        Owner owner = Owner.ofUser(actor.userId());
+        if (!consentReader.isAgreed(owner, ConsentItemCode.GOAL_ACCOUNT)) {
+            throw new CustomException(ErrorCode.GOAL_CONSENT_REQUIRED);
+        }
+        return owner;
     }
 
     /**

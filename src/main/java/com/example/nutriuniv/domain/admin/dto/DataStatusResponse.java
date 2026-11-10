@@ -25,7 +25,8 @@ public class DataStatusResponse {
     @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
     private LocalDateTime lastLoadedAt;
 
-    private long pendingRequestCount;                       // 분석 대기 WAITING + PROCESSING
+    private long pendingRequestCount;                       // 분석 요청 ANALYZING + REVIEWING
+    private long pendingReportCount;                        // 확인 중(RECEIVED) 제보
 
     @Getter
     @Builder

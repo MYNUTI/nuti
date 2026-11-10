@@ -1,5 +1,6 @@
 package com.example.nutriuniv.domain.product.service;
 
+import com.example.nutriuniv.domain.body.service.KcalBandResolver;
 import com.example.nutriuniv.common.exception.CustomException;
 import com.example.nutriuniv.common.exception.ErrorCode;
 import com.example.nutriuniv.common.security.Actor;
@@ -77,6 +78,7 @@ public class ProductResultService {
     private final LoggingService loggingService;
     private final ProductListQuery listQuery;
     private final ViewHistoryService viewHistoryService;
+    private final KcalBandResolver kcalBandResolver;
     private final TransactionTemplate txTemplate;
 
     public ProductResultService(ProductRepository productRepository,
@@ -91,6 +93,7 @@ public class ProductResultService {
                                 LoggingService loggingService,
                                 ProductListQuery listQuery,
                                 ViewHistoryService viewHistoryService,
+                                KcalBandResolver kcalBandResolver,
                                 PlatformTransactionManager transactionManager) {
         this.productRepository = productRepository;
         this.productNutrientRepository = productNutrientRepository;
@@ -104,6 +107,7 @@ public class ProductResultService {
         this.loggingService = loggingService;
         this.listQuery = listQuery;
         this.viewHistoryService = viewHistoryService;
+        this.kcalBandResolver = kcalBandResolver;
         this.txTemplate = new TransactionTemplate(transactionManager);
     }
 
@@ -120,7 +124,7 @@ public class ProductResultService {
             }
             throw e;
         }
-        EerBand band = EerBand.ofOrDefault(kcalBand);
+        EerBand band = kcalBandResolver.resolve(actor, kcalBand);
 
         ScanResultResponse res = txTemplate.execute(status -> {
             List<Product> found = productRepository.findByBarcode(barcode);

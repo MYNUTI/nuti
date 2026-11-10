@@ -101,7 +101,13 @@ public class AdminMetricsRepository {
 
     public long pendingAnalysisRequests() {
         Long n = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM analysis_requests WHERE status IN ('WAITING', 'PROCESSING')", Long.class);
+                "SELECT COUNT(*) FROM analysis_requests WHERE status IN ('ANALYZING', 'REVIEWING')", Long.class);
+        return n == null ? 0 : n;
+    }
+
+    /** 확인 중(RECEIVED) 제보 수. */
+    public long pendingReports() {
+        Long n = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM product_reports WHERE status = 'RECEIVED'", Long.class);
         return n == null ? 0 : n;
     }
 }
