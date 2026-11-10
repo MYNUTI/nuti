@@ -1,5 +1,6 @@
 package com.example.nutriuniv.domain.saved.service;
 
+import com.example.nutriuniv.domain.body.service.KcalBandResolver;
 import com.example.nutriuniv.common.exception.CustomException;
 import com.example.nutriuniv.common.exception.ErrorCode;
 import com.example.nutriuniv.common.security.Actor;
@@ -37,6 +38,7 @@ public class SavedProductService {
 
     public static final int MAX_SAVED = 200;
 
+    private final KcalBandResolver kcalBandResolver;
     private final SavedProductRepository savedProductRepository;
     private final ProductRepository productRepository;
     private final OwnerResolver ownerResolver;
@@ -51,7 +53,7 @@ public class SavedProductService {
         }
         Owner owner = ownerResolver.resolve(actor);
         GoalType goal = goalParam == null || goalParam.isBlank() ? GoalType.DEFAULT : GoalType.from(goalParam);
-        EerBand band = EerBand.ofOrDefault(kcalBand);
+        EerBand band = kcalBandResolver.resolve(actor, kcalBand);
 
         PageRequest pageable = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "createdAt"));
         Page<SavedProduct> saved = owner.isUser()

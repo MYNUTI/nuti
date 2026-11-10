@@ -1,5 +1,6 @@
 package com.example.nutriuniv.domain.product.service;
 
+import com.example.nutriuniv.domain.body.service.KcalBandResolver;
 import com.example.nutriuniv.common.exception.CustomException;
 import com.example.nutriuniv.common.exception.ErrorCode;
 import com.example.nutriuniv.common.security.Actor;
@@ -48,6 +49,7 @@ public class ProductCompareService {
     public static final int MAX_COMPARE = 4;
     public static final int DIFF_COUNT = 2;
 
+    private final KcalBandResolver kcalBandResolver;
     private final ProductCardService cardService;
     private final ProductListQuery listQuery;
     private final ProductNutrientRepository productNutrientRepository;
@@ -62,7 +64,7 @@ public class ProductCompareService {
             throw new CustomException(ErrorCode.INVALID_QUERY_PARAM, "page는 0 이상, size는 1~" + MAX_PAGE_SIZE + "이어야 합니다.");
         }
         GoalType goal = goal(goalParam);
-        EerBand band = EerBand.ofOrDefault(kcalBand);
+        EerBand band = kcalBandResolver.resolve(actor, kcalBand);
         Owner owner = ownerResolver.resolveOrNull(actor);
 
         ProductCardService.Row row = cardService.rows(List.of(productId)).get(productId);
@@ -125,7 +127,7 @@ public class ProductCompareService {
             throw new CustomException(ErrorCode.INVALID_QUERY_PARAM, "ids는 서로 다른 제품 " + MIN_COMPARE + "~" + MAX_COMPARE + "개여야 합니다.");
         }
         GoalType goal = goal(goalParam);
-        EerBand band = EerBand.ofOrDefault(kcalBand);
+        EerBand band = kcalBandResolver.resolve(actor, kcalBand);
         Owner owner = ownerResolver.resolveOrNull(actor);
 
         List<ProductCard> cards = cardService.cards(ids, goal, band, owner, null);

@@ -4,6 +4,7 @@ import com.example.nutriuniv.common.response.CommonResponse;
 import com.example.nutriuniv.common.security.Actor;
 import com.example.nutriuniv.domain.auth.dto.OAuthLoginRequest;
 import com.example.nutriuniv.domain.auth.dto.RefreshRequest;
+import com.example.nutriuniv.domain.auth.dto.SignupRequest;
 import com.example.nutriuniv.domain.auth.dto.TokenResponse;
 import com.example.nutriuniv.domain.auth.service.AuthService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -57,17 +58,29 @@ public class AuthController {
     }
 
     // POST /auth/oauth
-    @Operation(summary = "소셜 로그인 (+7.2 병합 내장)",
-            description = "기존회원·신규회원 모두 즉시 토큰을 발급합니다(등록 단계 폐지, 이메일 외 프로필 미수집). newUser 로 신규 여부 구분. " +
-                    "X-Anonymous-Id(기기 ID) 헤더가 있으면 그 기기 기록(저장·목표·기여)을 계정으로 병합하고 mergedRecordCount 를 돌려줍니다 — " +
-                    "한 트랜잭션, 계정에 같은 제품이 있으면 건너뜀. 이미 옮긴 기기면 그 뒤 새로 쌓인 기록만 옮겨집니다. " +
-                    "토큰 교환·유저 조회 실패 401 LOGIN_FAILED, 지원하지 않는 provider 400. 탈퇴(is_active=false) 유저는 신규회원으로 처리.")
+    @Operation(summary = "소셜 로그인 (v3 ACCT_004 · ACCT_005)",
+            description = "가입한 계정이면 토큰을 주고, X-Anonymous-Id(기기 ID) 기록(즐겨찾기·최근 본 제품·분석 요청·제보, 동의했으면 목표)을 계정으로 옮겨 " +
+                    "mergedRecordCount·merged(종류별)를 돌려줍니다. 같은 제품 즐겨찾기는 하나로 합칩니다. 옮기다 실패해도 로그인은 끝납니다(다음 로그인 때 다시). " +
+                    "처음 로그인한 계정이면 계정을 만들지 않고 signupRequired=true · signupToken(30분) · signupProfile 만 줍니다 — " +
+                    "가입 동의 화면을 거쳐 POST /auth/signup 으로 가입합니다. 토큰 교환·유저 조회 실패 401 LOGIN_FAILED, 지원하지 않는 provider 400.")
     @PostMapping("/oauth")
     public ResponseEntity<CommonResponse<TokenResponse>> login(Actor actor, @RequestBody OAuthLoginRequest request) {
         return ResponseEntity.ok(CommonResponse.success(authService.login(request, actor)));
     }
 
-    // POST /auth/register — 폐지 (/auth/oauth 자동 가입으로 통합)
+    // POST /auth/signup
+    @Operation(summary = "가입 (v3 ACCT_004 「동의하고 시작하기」)",
+            description = "signupToken(POST /auth/oauth 가 준 것) + 동의 6항목. 필수 AGE_14·TERMS·PRIVACY 가 하나라도 false 면 400 REQUIRED_CONSENT_MISSING(가입 안 함). " +
+                    "토큰 만료·위조 401 SIGNUP_TOKEN_INVALID(다시 로그인). 약관·처리방침 판이 지금 판과 다르면 409 POLICY_VERSION_CONFLICT. " +
+                    "항목마다 동의 여부·시각·판을 기록하고, GOAL_ACCOUNT 에 동의했으면 goal 을 계정에 저장합니다. 기기 기록 병합은 로그인과 같습니다. " +
+                    "몸 정보 값은 가입 뒤 PUT /me/body-profile 로 보냅니다(5-7 「저장하고 시작하기」).")
+    @PostMapping("/signup")
+    public ResponseEntity<CommonResponse<TokenResponse>> signup(
+            Actor actor,
+            @RequestBody SignupRequest request,
+            @RequestHeader(value = "User-Agent", required = false) String userAgent) {
+        return ResponseEntity.ok(CommonResponse.success(authService.signup(request, actor, userAgent)));
+    }
 
     // POST /auth/refresh
     @Operation(summary = "액세스 토큰 재발급",

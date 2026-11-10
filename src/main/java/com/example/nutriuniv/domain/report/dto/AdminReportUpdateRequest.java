@@ -7,6 +7,6 @@ import lombok.NoArgsConstructor;
 @Getter
 @NoArgsConstructor
 public class AdminReportUpdateRequest {
-    private String status;          // RECEIVED | PROCESSING | DONE | REJECTED
+    private String status;          // RECEIVED | DONE | REJECTED (옛 PROCESSING 은 RECEIVED)
     private String memo;
 }

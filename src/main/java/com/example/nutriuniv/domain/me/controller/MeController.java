@@ -2,9 +2,11 @@ package com.example.nutriuniv.domain.me.controller;
 
 import com.example.nutriuniv.common.response.CommonResponse;
 import com.example.nutriuniv.common.security.Actor;
+import com.example.nutriuniv.domain.me.dto.ContributionsResponse;
 import com.example.nutriuniv.domain.me.dto.MeSettingsResponse;
 import com.example.nutriuniv.domain.me.dto.MeSettingsUpdateRequest;
 import com.example.nutriuniv.domain.me.dto.MeSummaryResponse;
+import com.example.nutriuniv.domain.me.service.ContributionService;
 import com.example.nutriuniv.domain.me.service.MeService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -18,6 +20,7 @@ import org.springframework.web.bind.annotation.*;
 public class MeController {
 
     private final MeService meService;
+    private final ContributionService contributionService;
 
     // GET /me/summary
     @Operation(summary = "마이 화면 조회",
@@ -26,6 +29,15 @@ public class MeController {
     @GetMapping("/me/summary")
     public ResponseEntity<CommonResponse<MeSummaryResponse>> summary(Actor actor) {
         return ResponseEntity.ok(CommonResponse.success(meService.summary(actor)));
+    }
+
+    // GET /me/contributions
+    @Operation(summary = "내 기여 (v3 CTRB_006)",
+            description = "내가 직접 보낸 분석 요청(자동 등록 제외) · 제보 목록과 상태(분석 중 · 확인 중 · 완료 · 분석 못 함 / 확인 중 · 반영 · 반영하지 않음), summary 건수. " +
+                    "토큰 또는 X-Anonymous-Id 기준, 둘 다 없으면 빈 목록.")
+    @GetMapping("/me/contributions")
+    public ResponseEntity<CommonResponse<ContributionsResponse>> contributions(Actor actor) {
+        return ResponseEntity.ok(CommonResponse.success(contributionService.list(actor)));
     }
 
     // GET /me/settings

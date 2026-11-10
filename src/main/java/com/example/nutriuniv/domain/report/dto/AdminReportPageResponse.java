@@ -8,7 +8,7 @@ import lombok.Getter;
 import java.time.LocalDateTime;
 import java.util.List;
 
-/** GET /admin/reports 출력 (기능명세서 10.4) — 최근 접수순. */
+/** GET /admin/reports 출력 (v3) — 최근 접수순. 연락처는 내보내지 않는다. */
 @Getter
 @Builder
 public class AdminReportPageResponse {
@@ -27,14 +27,15 @@ public class AdminReportPageResponse {
         @JsonInclude(JsonInclude.Include.NON_NULL)
         private String productName;
 
-        private String reportType;          // NUTRITION | NAME | IMAGE | OTHER
-        private String reportTypeLabel;     // 영양정보 · 제품명 · 이미지 · 기타
+        private String reportType;          // WRONG_PRODUCT | NAME_OR_IMAGE | NUTRITION | OTHER
+        private String reportTypeLabel;
         private String content;
 
         @JsonInclude(JsonInclude.Include.NON_NULL)
-        private String contactEmail;
+        private String barcode;             // 어떤 바코드로 본 제품에서 제보했는지
 
-        private String status;              // RECEIVED | PROCESSING | DONE | REJECTED
+        private String status;              // RECEIVED | DONE | REJECTED
+        private String statusLabel;         // 확인 중 · 반영했어요 · 반영하지 않음
 
         @JsonInclude(JsonInclude.Include.NON_NULL)
         private String adminMemo;

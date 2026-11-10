@@ -8,10 +8,13 @@ import lombok.NoArgsConstructor;
 import java.time.LocalDateTime;
 
 /**
- * 분석 대기 항목 (기능명세서 10.2). 식별값(바코드·검색어·제품 ID)당 1행 — 같은 식별값 재접수는 request_count 만 +1 (새 행 없음).
- * 스캔 404·영양정보 부족 자동 등록과 사용자 수동 접수가 같은 표를 쓴다. 완료 후에도 행을 지우지 않고 DONE 으로만 바꾼다.
- * <p>식별값 컬럼 3개는 각각 UNIQUE — PostgreSQL 은 NULL 을 서로 다른 값으로 보므로 nullable 컬럼의 UNIQUE 가 그대로 부분 유니크 역할을 한다.
- * 쓰기(upsert)는 AnalysisRequestService 가 INSERT … ON CONFLICT 로 원자적으로 한다.
+ * 분석 요청 (v3 CTRB · ADM_002).
+ * <ul>
+ *   <li>바코드 · 검색어 · 제품 ID 요청은 식별값당 1행 — 다른 기기가 다시 요청하면 request_count 만 +1 (같은 기기는 한 번만 센다)</li>
+ *   <li>제품명 요청(이름 필수 · 브랜드 선택)은 늘 새 행. 어디서 왔는지(origin_barcode · origin_keyword)를 함께 남긴다</li>
+ * </ul>
+ * 식별값 컬럼 3개는 각각 UNIQUE — PostgreSQL 은 NULL 을 서로 다른 값으로 보므로 제품명 요청 행은 충돌하지 않는다.
+ * 완료 후에도 행을 지우지 않고 DONE 으로만 바꾼다.
  */
 @Entity
 @Table(name = "analysis_requests",
@@ -24,6 +27,9 @@ import java.time.LocalDateTime;
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class AnalysisRequest {
+
+    public static final int NAME_MAX_LENGTH = 100;
+    public static final int BRAND_MAX_LENGTH = 50;
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -42,12 +48,24 @@ public class AnalysisRequest {
     @Column(name = "product_id")
     private Long productId;                 // NUTRITION_FILL
 
+    @Column(name = "product_name", length = NAME_MAX_LENGTH)
+    private String productName;             // 제품명 요청 — 이름
+
+    @Column(name = "brand_name", length = BRAND_MAX_LENGTH)
+    private String brandName;               // 제품명 요청 — 브랜드(선택)
+
+    @Column(name = "origin_barcode", length = 13)
+    private String originBarcode;           // 제품명 요청 — 못 찾은 바코드에서 왔으면
+
+    @Column(name = "origin_keyword", length = 30)
+    private String originKeyword;           // 제품명 요청 — 결과 없는 검색어에서 왔으면
+
     @Column(name = "request_count", nullable = false)
     private int requestCount = 1;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 15)
-    private AnalysisRequestStatus status = AnalysisRequestStatus.WAITING;
+    private AnalysisRequestStatus status = AnalysisRequestStatus.ANALYZING;
 
     @Column(name = "first_requested_at", nullable = false)
     private LocalDateTime firstRequestedAt;
@@ -61,14 +79,42 @@ public class AnalysisRequest {
     @Column(name = "processed_by")
     private Long processedBy;               // 관리자 user id
 
+    /** 제품명 요청 — 늘 새 행. */
+    public static AnalysisRequest nameRequest(String productName, String brandName, String originBarcode, String originKeyword) {
+        AnalysisRequest r = new AnalysisRequest();
+        r.type = AnalysisRequestType.NEW_PRODUCT;
+        r.productName = productName;
+        r.brandName = brandName;
+        r.originBarcode = originBarcode;
+        r.originKeyword = originKeyword;
+        r.requestCount = 1;
+        r.status = AnalysisRequestStatus.ANALYZING;
+        r.firstRequestedAt = LocalDateTime.now();
+        r.lastRequestedAt = r.firstRequestedAt;
+        return r;
+    }
+
+    public boolean isNameRequest() {
+        return productName != null;
+    }
+
+    /** 요청 방식 — BARCODE | KEYWORD | NAME | PRODUCT. */
+    public String kind() {
+        if (productName != null) return "NAME";
+        if (barcode != null) return "BARCODE";
+        if (keyword != null) return "KEYWORD";
+        return "PRODUCT";
+    }
+
     /** 식별값 한 줄 — 관리자 목록용. */
     public String identifier() {
+        if (productName != null) return brandName == null ? productName : brandName + " " + productName;
         if (barcode != null) return barcode;
         if (keyword != null) return keyword;
         return productId == null ? null : String.valueOf(productId);
     }
 
-    /** 관리자 상태 변경 (10.2). DONE·HOLD 로 바꾸면 처리 시각·처리자를 남긴다. */
+    /** 관리자 상태 변경. DONE·FAILED 로 바꾸면 처리 시각·처리자를 남긴다. */
     public void changeStatus(AnalysisRequestStatus next, Long adminUserId) {
         this.status = next;
         if (next.isTerminal()) {

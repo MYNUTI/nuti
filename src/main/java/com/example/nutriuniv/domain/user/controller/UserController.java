@@ -37,37 +37,13 @@ public class UserController {
         return ResponseEntity.ok(CommonResponse.success(userService.updateMe(principal.getId(), request)));
     }
 
-    @Operation(summary = "회원 탈퇴")
+    @Operation(summary = "계정 삭제 (v3 ACCT_008)",
+            description = "되돌릴 수 없습니다. 계정 정보·계정 목표·즐겨찾기·최근 본 제품·동의 이력·몸 정보·로그인 토큰을 지웁니다. " +
+                    "분석 요청·제보는 계정 연결만 끊고 남깁니다(운영 대기열에서 계속 처리). 실패하면 계정을 그대로 둡니다. " +
+                    "같은 회사 계정으로 다시 로그인하면 새 가입입니다. 기기는 처음 방문 상태로 돌아가야 합니다(기기 ID 새로 만들기 — 클라이언트).")
     @DeleteMapping
-    public ResponseEntity<CommonResponse<Void>> deleteMe(
-            @AuthenticationPrincipal UserPrincipal principal,
-            @RequestParam(required = false) String reason) {
-        userService.deleteMe(principal.getId(), reason);
-        return ResponseEntity.ok(CommonResponse.success(null));
-    }
-
-    @Operation(summary = "영양정보 조회")
-    @GetMapping("/nutrition")
-    public ResponseEntity<CommonResponse<UserNutritionResponse>> getNutrition(
-            @AuthenticationPrincipal UserPrincipal principal) {
-        return ResponseEntity.ok(CommonResponse.success(userService.getNutrition(principal.getId())));
-    }
-
-    @Operation(summary = "영양정보 등록")
-    @PostMapping("/nutrition")
-    public ResponseEntity<CommonResponse<Void>> createNutrition(
-            @AuthenticationPrincipal UserPrincipal principal,
-            @Valid @RequestBody UserNutritionRequest request) {
-        userService.createNutrition(principal.getId(), request);
-        return ResponseEntity.ok(CommonResponse.success(null));
-    }
-
-    @Operation(summary = "영양정보 수정")
-    @PutMapping("/nutrition")
-    public ResponseEntity<CommonResponse<Void>> updateNutrition(
-            @AuthenticationPrincipal UserPrincipal principal,
-            @Valid @RequestBody UserNutritionRequest request) {
-        userService.updateNutrition(principal.getId(), request);
+    public ResponseEntity<CommonResponse<Void>> deleteMe(@AuthenticationPrincipal UserPrincipal principal) {
+        userService.deleteMe(principal.getId());
         return ResponseEntity.ok(CommonResponse.success(null));
     }
 }

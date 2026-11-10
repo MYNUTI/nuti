@@ -14,7 +14,7 @@ public class GoalResponse {
 
     private String goal;
     private String label;
-    private boolean healthConsented;
+    private boolean goalAccountConsented;   // 「목표 계정 저장」 동의 — false 면 목표는 기기에만 둔다
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
     @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")

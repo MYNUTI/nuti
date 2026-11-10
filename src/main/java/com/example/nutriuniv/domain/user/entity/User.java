@@ -68,7 +68,7 @@ public class User {
     private boolean personalInfoAgreed = false;  // ① 개인정보 수집·이용 동의 (필수)
 
     @Column(name = "health_info_agreed", nullable = false)
-    private boolean healthInfoAgreed = false;    // ② 건강정보 수집·이용 동의 (선택)
+    private boolean healthInfoAgreed = false;    // ② (v2) 건강정보 동의 — v3 는 consent_records 의 GOAL_ACCOUNT · BODY_PROFILE 로 대신한다
 
     @Column(name = "age_confirmed", nullable = false)
     private boolean ageConfirmed = false;        // ③ 만 14세 이상 확인 (필수) — 2차는 동의 항목 AGE_OVER_14 로 받는다
@@ -101,6 +101,23 @@ public class User {
         return u;
     }
 
+    /** 가입 (v3 ACCT_004) — 회사에서 받은 닉네임이 있으면 그것, 없으면 「사용자{id}」. */
+    public static User register(String oauthProvider, String oauthId, String email, String providerNickname) {
+        User u = register(oauthProvider, oauthId, email);
+        if (providerNickname != null && !providerNickname.isBlank()) {
+            String n = providerNickname.trim();
+            u.nickname = n.length() > 50 ? n.substring(0, 50) : n;
+        }
+        return u;
+    }
+
+    /** 필수 동의(개인정보 · 만 14세 이상)를 받고 가입했다 — 조회용 표시. 원장은 consent_records. */
+    public void confirmSignupConsents() {
+        this.personalInfoAgreed = true;
+        this.ageConfirmed = true;
+        this.consentedAt = LocalDateTime.now();
+    }
+
     /** 「사용자{id}」. 이미 다른 닉네임이면 건드리지 않는다. */
     public void assignDefaultNickname() {
         if (this.id != null && DEFAULT_NICKNAME_PREFIX.equals(this.nickname)) {
@@ -127,15 +144,6 @@ public class User {
     public void agreePersonalInfo() {
         this.personalInfoAgreed = true;
         this.consentedAt = LocalDateTime.now();
-    }
-
-    public void agreeHealthInfo() {
-        this.healthInfoAgreed = true;
-        this.consentedAt = LocalDateTime.now();
-    }
-
-    public void revokeHealthInfo() {
-        this.healthInfoAgreed = false;
     }
 
     public void updateRole(String role) {

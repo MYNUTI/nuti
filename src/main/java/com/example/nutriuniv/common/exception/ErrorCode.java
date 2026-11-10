@@ -13,6 +13,7 @@ public enum ErrorCode {
     VALIDATION_FAILED(HttpStatus.BAD_REQUEST, "입력값 유효성 검사에 실패했습니다."),
     INVALID_QUERY_PARAM(HttpStatus.BAD_REQUEST, "유효하지 않은 쿼리 파라미터입니다."),
     BARCODE_CHECKSUM_INVALID(HttpStatus.BAD_REQUEST, "바코드 체크섬이 일치하지 않습니다."),
+    REQUIRED_CONSENT_MISSING(HttpStatus.BAD_REQUEST, "필수 동의 항목에 모두 동의해야 가입할 수 있습니다."),
     // 저장·요청처럼 소유자가 필요한 API 를 로그인도 기기 ID 도 없이 부름 — 클라이언트 버그. 기기 ID 는 첫 실행 때 기기가 만든다 (v3 ACCT_001)
     ANONYMOUS_ID_REQUIRED(HttpStatus.BAD_REQUEST, "X-Anonymous-Id 헤더(기기 UUID)가 필요합니다."),
 
@@ -20,12 +21,14 @@ public enum ErrorCode {
     UNAUTHORIZED(HttpStatus.UNAUTHORIZED, "인증이 필요합니다."),
     TOKEN_EXPIRED(HttpStatus.UNAUTHORIZED, "토큰이 만료되었습니다."),
     INVALID_TOKEN(HttpStatus.UNAUTHORIZED, "유효하지 않은 토큰입니다."),
+    SIGNUP_TOKEN_INVALID(HttpStatus.UNAUTHORIZED, "가입 시간이 지났거나 올바르지 않습니다. 다시 로그인해 주세요."),
     LOGIN_FAILED(HttpStatus.UNAUTHORIZED, "아이디 또는 비밀번호가 일치하지 않습니다."),
 
     // 403 Forbidden
     FORBIDDEN(HttpStatus.FORBIDDEN, "접근 권한이 없습니다."),
     // 몸 정보처럼 따로 동의를 받아야 하는 기능 — 클라이언트가 동의 화면을 띄운다
-    HEALTH_CONSENT_REQUIRED(HttpStatus.FORBIDDEN, "건강정보 수집·이용 동의가 필요합니다."),
+    GOAL_CONSENT_REQUIRED(HttpStatus.FORBIDDEN, "목표 계정 저장 동의가 필요합니다."),
+    BODY_CONSENT_REQUIRED(HttpStatus.FORBIDDEN, "몸 정보 수집·이용 동의가 필요합니다."),
 
     // 404 Not Found
     RESOURCE_NOT_FOUND(HttpStatus.NOT_FOUND, "요청한 리소스를 찾을 수 없습니다."),

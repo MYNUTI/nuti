@@ -110,6 +110,7 @@ public class AdminMetricsService {
                 .categoryAnalyzedRatios(categories)
                 .lastLoadedAt(t.lastLoadedAt())
                 .pendingRequestCount(repository.pendingAnalysisRequests())
+                .pendingReportCount(repository.pendingReports())
                 .build();
     }
 

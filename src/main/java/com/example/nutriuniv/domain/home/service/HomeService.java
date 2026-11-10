@@ -1,5 +1,6 @@
 package com.example.nutriuniv.domain.home.service;
 
+import com.example.nutriuniv.domain.body.service.KcalBandResolver;
 import com.example.nutriuniv.common.security.Actor;
 import com.example.nutriuniv.common.security.Owner;
 import com.example.nutriuniv.domain.analysis.repository.AnalysisRequestEventRepository;
@@ -25,6 +26,7 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class HomeService {
 
+    private final KcalBandResolver kcalBandResolver;
     private final OwnerResolver ownerResolver;
     private final ViewHistoryService viewHistoryService;
     private final AnalysisRequestEventRepository analysisRequestEventRepository;
@@ -34,7 +36,7 @@ public class HomeService {
     @Transactional(readOnly = true)
     public HomeResponse home(String goalParam, Integer kcalBand, Actor actor) {
         GoalType goal = goalParam == null || goalParam.isBlank() ? GoalType.DEFAULT : GoalType.from(goalParam);
-        EerBand band = EerBand.ofOrDefault(kcalBand);
+        EerBand band = kcalBandResolver.resolve(actor, kcalBand);
         Owner owner = ownerResolver.resolveOrNull(actor);
 
         ViewHistoryService.ViewedStats stats = viewHistoryService.stats(owner, band);
@@ -46,8 +48,8 @@ public class HomeService {
         }
 
         long requests = owner == null ? 0
-                : owner.isUser() ? analysisRequestEventRepository.countByUserId(owner.userId())
-                : analysisRequestEventRepository.countByAnonymousId(owner.anonymousId());
+                : owner.isUser() ? analysisRequestEventRepository.countDistinctRequestsByUserId(owner.userId())
+                : analysisRequestEventRepository.countDistinctRequestsByAnonymousId(owner.anonymousId());
 
         List<RankingDtos.Major> majors = rankingService.categories().majors().stream()
                 .filter(m -> !m.chips().isEmpty()).toList();

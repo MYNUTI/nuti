@@ -9,6 +9,7 @@ import com.example.nutriuniv.domain.product.entity.Product;
 import com.example.nutriuniv.domain.product.entity.ProductChangeLog;
 import com.example.nutriuniv.domain.product.repository.ProductChangeLogRepository;
 import com.example.nutriuniv.domain.product.repository.ProductRepository;
+import com.example.nutriuniv.domain.product.util.BarcodeNormalizer;
 import com.example.nutriuniv.domain.report.dto.AdminReportPageResponse;
 import com.example.nutriuniv.domain.report.dto.AdminReportUpdateRequest;
 import com.example.nutriuniv.domain.report.dto.ReportCreateRequest;
@@ -28,14 +29,16 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
- * 오류 제보 (기능명세서 10.4). 비로그인 가능·연락처 선택, 같은 사용자 하루 10건 초과 429 (KST, 소유자 → 세션 순).
+ * 오류 제보 (v3 CTRB_008). 비로그인 가능, 연락처는 받지 않는다. 고른 항목마다 한 행, 같은 사람 · 제품 · 항목이 확인 중이면 새로 만들지 않는다.
+ * 같은 사용자 하루 10건 초과 429 (KST, 소유자 → 세션 순).
  * 관리자가 DONE 으로 바꾸면(데이터를 고쳤다는 뜻) 제품에 재적재 보호를 켜고 수정 이력을 남긴다 — 실제 값 수정은 관리자 상품·영양성분 API.
  */
 @Service
@@ -44,7 +47,8 @@ public class ProductReportService {
 
     public static final int DAILY_LIMIT = 10;
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
-    private static final Pattern EMAIL = Pattern.compile("^[a-zA-Z0-9._%+\\-]+@[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,}$");
+    static final String MSG_RECEIVED = "보내 주셔서 고마워요. 확인 중이에요.";
+    static final String MSG_DUPLICATE = "이미 보내 주신 내용이에요. 확인 중이에요.";
 
     private final ProductReportRepository reportRepository;
     private final ProductRepository productRepository;
@@ -58,25 +62,64 @@ public class ProductReportService {
         Product product = productRepository.findById(productId)
                 .filter(Product::isActive)
                 .orElseThrow(() -> new CustomException(ErrorCode.PRODUCT_NOT_FOUND));
-        ReportType type = ReportType.from(request.getReportType());
+
+        List<String> raw = new ArrayList<>();
+        if (request.getReportTypes() != null) raw.addAll(request.getReportTypes());
+        if (request.getReportType() != null && !request.getReportType().isBlank()) raw.add(request.getReportType());
+        if (raw.isEmpty()) {
+            throw new CustomException(ErrorCode.BAD_REQUEST, "제보 항목을 하나 이상 골라 주세요.");
+        }
+        Set<ReportType> types = new LinkedHashSet<>();
+        for (String r : raw) types.add(ReportType.from(r));
 
         String content = request.getContent() == null ? "" : request.getContent().trim();
-        if (content.isEmpty()) {
-            throw new CustomException(ErrorCode.BAD_REQUEST, "content는 필수입니다.");
+        if (types.contains(ReportType.OTHER) && content.isEmpty()) {
+            throw new CustomException(ErrorCode.BAD_REQUEST, "기타를 고르면 내용을 적어 주세요.");
         }
         if (content.length() > ProductReport.MAX_CONTENT_LENGTH) {
             throw new CustomException(ErrorCode.BAD_REQUEST, "content는 " + ProductReport.MAX_CONTENT_LENGTH + "자 이하여야 합니다.");
         }
-        String email = request.getContactEmail() == null || request.getContactEmail().isBlank() ? null : request.getContactEmail().trim();
-        if (email != null && !EMAIL.matcher(email).matches()) {
-            throw new CustomException(ErrorCode.BAD_REQUEST, "contactEmail 형식이 올바르지 않습니다.");
-        }
+        String barcode = lenientBarcode(request.getBarcode());
 
         Owner owner = ownerResolver.resolveOrNull(actor);
-        enforceDailyLimit(owner, actor.sessionId());
+        String sessionId = actor.sessionId();
 
-        ProductReport saved = reportRepository.save(ProductReport.create(product.getId(), type, content, email, owner, actor.sessionId()));
-        return new ReportCreateResponse(saved.getId(), saved.getStatus().name());
+        List<ReportType> fresh = new ArrayList<>();
+        List<String> duplicates = new ArrayList<>();
+        for (ReportType t : types) {
+            if (stillReviewing(owner, sessionId, product.getId(), t)) duplicates.add(t.name());
+            else fresh.add(t);
+        }
+        if (fresh.isEmpty()) {
+            return new ReportCreateResponse(List.of(), duplicates, true,
+                    ReportStatus.RECEIVED.name(), ReportStatus.RECEIVED.label(), MSG_DUPLICATE);
+        }
+
+        enforceDailyLimit(owner, sessionId);
+        List<Long> ids = new ArrayList<>();
+        for (ReportType t : fresh) {
+            ids.add(reportRepository.save(ProductReport.create(product.getId(), t, content, barcode, owner, sessionId)).getId());
+        }
+        return new ReportCreateResponse(ids, duplicates, false,
+                ReportStatus.RECEIVED.name(), ReportStatus.RECEIVED.label(), MSG_RECEIVED);
+    }
+
+    /** 같은 사람(계정 → 기기 ID → 세션) · 같은 제품 · 같은 항목이 아직 확인 중인가. */
+    private boolean stillReviewing(Owner owner, String sessionId, Long productId, ReportType type) {
+        ReportStatus st = ReportStatus.RECEIVED;
+        if (owner != null && owner.isUser()) return reportRepository.existsByUserIdAndProductIdAndReportTypeAndStatus(owner.userId(), productId, type, st);
+        if (owner != null) return reportRepository.existsByAnonymousIdAndProductIdAndReportTypeAndStatus(owner.anonymousId(), productId, type, st);
+        if (sessionId != null && !sessionId.isBlank()) return reportRepository.existsBySessionIdAndProductIdAndReportTypeAndStatus(sessionId, productId, type, st);
+        return false;
+    }
+
+    private static String lenientBarcode(String raw) {
+        if (raw == null || raw.isBlank()) return null;
+        try {
+            return BarcodeNormalizer.normalize(raw);
+        } catch (CustomException e) {
+            return null;
+        }
     }
 
     private void enforceDailyLimit(Owner owner, String sessionId) {
@@ -123,8 +166,9 @@ public class ProductReportService {
                         .reportType(r.getReportType().name())
                         .reportTypeLabel(r.getReportType().label())
                         .content(r.getContent())
-                        .contactEmail(r.getContactEmail())
+                        .barcode(r.getBarcode())
                         .status(r.getStatus().name())
+                        .statusLabel(r.getStatus().label())
                         .adminMemo(r.getAdminMemo())
                         .createdAt(r.getCreatedAt())
                         .handledAt(r.getHandledAt())

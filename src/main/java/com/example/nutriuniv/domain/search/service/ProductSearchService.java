@@ -1,5 +1,6 @@
 package com.example.nutriuniv.domain.search.service;
 
+import com.example.nutriuniv.domain.body.service.KcalBandResolver;
 import com.example.nutriuniv.common.exception.CustomException;
 import com.example.nutriuniv.common.exception.ErrorCode;
 import com.example.nutriuniv.common.security.Actor;
@@ -43,6 +44,7 @@ public class ProductSearchService {
     public static final int MAX_PAGE_SIZE = 50;
     private static final int SAME_CATEGORY_TOP = 5;
 
+    private final KcalBandResolver kcalBandResolver;
     private final ProductSearchRepository searchRepository;
     private final ProductListQuery listQuery;
     private final ProductCardService cardService;
@@ -69,7 +71,7 @@ public class ProductSearchService {
         }
         String chosung = SearchNormalizer.isChosungQuery(raw) ? SearchNormalizer.chosung(raw) : null;
         GoalType goal = goalParam == null || goalParam.isBlank() ? GoalType.DEFAULT : GoalType.from(goalParam);
-        EerBand band = EerBand.ofOrDefault(kcalBand);
+        EerBand band = kcalBandResolver.resolve(actor, kcalBand);
         int slot = EerBand.slot(goal, band);
         ListSort sort = ListSort.from(sortParam);
         Owner owner = ownerResolver.resolveOrNull(actor);

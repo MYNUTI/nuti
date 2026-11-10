@@ -45,7 +45,8 @@ public class SecurityConfig {
                         // 소유자 판정(JWT → 기기 익명 ID → 없으면 400 ANONYMOUS_ID_REQUIRED)은 서비스(OwnerResolver)가 한다.
                         .requestMatchers("/app/**", "/onboarding/**", "/me/**").permitAll()
                         .requestMatchers("/search/**", "/grades/**", "/meta/**", "/rankings/**", "/home").permitAll()
-                        .requestMatchers(HttpMethod.POST, "/analysis-requests", "/products/*/reports").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/analysis-requests", "/products/*/reports", "/events").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/analysis-requests/popular").permitAll()
                         // admin
                         .requestMatchers("/admin/**").hasRole("ADMIN")
                         // 나머지(/users/**, 그 외) 인증 필요

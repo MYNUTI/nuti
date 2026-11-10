@@ -25,4 +25,13 @@ class EerBandTest {
         assertEquals(List.of(1500, 2000, 2500, 3000), EerBand.slots(GoalType.WEIGHT_LOSS));
         assertEquals(List.of(1500, 2000, 2500, 3000), EerBand.slots(GoalType.MUSCLE_GAIN));
     }
+
+    @Test
+    void 몸_정보_칼로리는_가까운_구간으로_같으면_위로() {
+        assertEquals(EerBand.B1500, EerBand.nearest(1100));
+        assertEquals(EerBand.B2000, EerBand.nearest(1750));     // 1500 · 2000 가운데 → 위
+        assertEquals(EerBand.B2000, EerBand.nearest(2240));
+        assertEquals(EerBand.B2500, EerBand.nearest(2260));
+        assertEquals(EerBand.B3000, EerBand.nearest(4200));
+    }
 }

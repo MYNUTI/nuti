@@ -9,6 +9,7 @@ import com.example.nutriuniv.domain.goal.entity.UserGoal;
 import com.example.nutriuniv.domain.goal.repository.UserGoalRepository;
 import com.example.nutriuniv.domain.history.repository.ViewHistoryRepository;
 import com.example.nutriuniv.domain.product.entity.Product;
+import com.example.nutriuniv.domain.report.repository.ProductReportRepository;
 import com.example.nutriuniv.domain.saved.entity.SavedProduct;
 import com.example.nutriuniv.domain.saved.repository.SavedProductRepository;
 import com.example.nutriuniv.domain.user.entity.User;
@@ -38,6 +39,7 @@ class AnonymousMergeServiceTest {
     @Mock UserGoalRepository userGoalRepository;
     @Mock AnalysisRequestEventRepository analysisRequestEventRepository;
     @Mock ViewHistoryRepository viewHistoryRepository;
+    @Mock ProductReportRepository productReportRepository;
 
     @InjectMocks AnonymousMergeService service;
 
@@ -51,8 +53,8 @@ class AnonymousMergeServiceTest {
 
     @Test
     void 헤더가_비어_있으면_0건() {
-        assertEquals(0, service.merge(null, user).total());
-        assertEquals(0, service.merge("  ", user).total());
+        assertEquals(0, service.merge(null, user, true).total());
+        assertEquals(0, service.merge("  ", user, true).total());
         verifyNoInteractions(anonymousUserRepository, savedProductRepository, userGoalRepository, analysisRequestEventRepository);
     }
 
@@ -77,7 +79,7 @@ class AnonymousMergeServiceTest {
         when(analysisRequestEventRepository.transferToUser(DEVICE, 7L)).thenReturn(3);
         when(anonymousUserRepository.findByAnonymousId(DEVICE)).thenReturn(Optional.empty());   // 서버에 등록된 적 없는 기기
 
-        AnonymousMergeService.MergeResult r = service.merge(DEVICE, user);
+        AnonymousMergeService.MergeResult r = service.merge(DEVICE, user, true);
 
         assertEquals(1, r.savedProducts());
         assertEquals(1, r.goals());
@@ -103,7 +105,7 @@ class AnonymousMergeServiceTest {
         when(userGoalRepository.findByAnonymousId(DEVICE)).thenReturn(Optional.empty());
         when(analysisRequestEventRepository.transferToUser(DEVICE, 7L)).thenReturn(1);   // 연결이 끊긴 뒤 새로 쌓인 1건
 
-        AnonymousMergeService.MergeResult r = service.merge(DEVICE, user);
+        AnonymousMergeService.MergeResult r = service.merge(DEVICE, user, true);
 
         assertEquals(1, r.total());
         assertEquals(7L, link.getMergedUserId());
@@ -119,7 +121,7 @@ class AnonymousMergeServiceTest {
         when(analysisRequestEventRepository.transferToUser(DEVICE, 7L)).thenReturn(0);
         when(anonymousUserRepository.findByAnonymousId(DEVICE)).thenReturn(Optional.empty());
 
-        AnonymousMergeService.MergeResult r = service.merge(DEVICE, user);
+        AnonymousMergeService.MergeResult r = service.merge(DEVICE, user, true);
 
         assertEquals(0, r.goals());
         verify(userGoalRepository).delete(deviceGoal);

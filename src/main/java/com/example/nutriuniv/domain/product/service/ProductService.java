@@ -1,5 +1,6 @@
 package com.example.nutriuniv.domain.product.service;
 
+import com.example.nutriuniv.domain.body.service.KcalBandResolver;
 import com.example.nutriuniv.common.exception.CustomException;
 import com.example.nutriuniv.common.exception.ErrorCode;
 import com.example.nutriuniv.common.security.Actor;
@@ -56,6 +57,7 @@ public class ProductService {
     private static final Set<String> ALLOWED_SORT_VALUES = Set.of("POPULAR", "SCORE", "ACCURACY", "RECOMMENDED");
     private static final Set<String> ALLOWED_LINK_STATUS = Set.of("LINKED", "UNLINKED", "FAILED");
 
+    private final KcalBandResolver kcalBandResolver;
     private final ProductRepository productRepository;
     private final ProductNutrientRepository productNutrientRepository;
     private final BrandRepository brandRepository;
@@ -190,7 +192,7 @@ public class ProductService {
         // 영양정보 행이 없으면 점수 없음(NO_SCORE) — 404 가 아니다. 성분값 보강 요청은 build 가 자동 등록
         ProductNutrient nutrient = productNutrientRepository.findById(productId).orElse(null);
         CoupangLink coupangLink = coupangLinkRepository.findByProduct(product).orElse(null);
-        ProductResultResponse result = productResultService.build(product, nutrient, coupangLink, EerBand.ofOrDefault(kcalBand),
+        ProductResultResponse result = productResultService.build(product, nutrient, coupangLink, kcalBandResolver.resolve(actor, kcalBand),
                 actor, AnalysisRequestChannel.AUTO_RESULT);
         productResultService.recordView(actor, productId, ViewSource.from(source));
         return result;

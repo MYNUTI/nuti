@@ -29,7 +29,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         if (header != null && header.startsWith("Bearer ")) {
             String token = header.substring(7);
             try {
-                if (jwtService.isValid(token)) {
+                if (jwtService.isAccessToken(token)) {
                     Long userId = jwtService.getUserId(token);
                     User user = userRepository.findById(userId).orElse(null);
                     if (user != null && user.isActive()) {
