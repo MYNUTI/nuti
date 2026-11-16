@@ -18,6 +18,7 @@ import java.util.List;
  *   <li>분석 요청 상태 WAITING → ANALYZING, PROCESSING → REVIEWING, HOLD → FAILED</li>
  *   <li>제보 항목 NAME · IMAGE → NAME_OR_IMAGE, 제보 상태 PROCESSING → RECEIVED</li>
  * </ol>
+ * 변경 이력 source 에 공공데이터 최신화 값(SYNC_DEACTIVATE · SYNC_REACTIVATE)을 더하면서 product_change_logs.source 도 대상에 넣었다.
  */
 @Slf4j
 @Component
@@ -30,7 +31,8 @@ public class V3EnumMigration implements ApplicationRunner {
             new String[]{"analysis_requests", "status"},
             new String[]{"analysis_request_events", "channel"},
             new String[]{"product_reports", "report_type"},
-            new String[]{"product_reports", "status"});
+            new String[]{"product_reports", "status"},
+            new String[]{"product_change_logs", "source"});
 
     private static final List<String> UPDATES = List.of(
             "UPDATE analysis_requests SET status = 'ANALYZING' WHERE status = 'WAITING'",

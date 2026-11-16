@@ -10,6 +10,8 @@ import java.time.LocalDateTime;
 /**
  * 제품 데이터 수정 이력 (기능명세서 10.4 「수정하면 무엇을 언제 고쳤는지 남긴다」).
  * 관리자 상품 수정(PATCH /admin/products/{id})·영양성분 수정(PATCH /admin/products/{id}/nutrients)·제보 처리 완료가 한 줄씩 남긴다.
+ * 공공데이터 최신화가 원천에서 사라진 제품을 비활성으로 돌리거나(SYNC_DEACTIVATE) 다시 살릴 때(SYNC_REACTIVATE)도 남긴다 —
+ * 최신화는 마지막 이력이 SYNC_DEACTIVATE 인 제품만 다시 살린다(관리자가 직접 비활성으로 돌린 제품은 그대로).
  * summary 는 「name: A → B / brand: 1 → 2」 같은 사람이 읽는 문장.
  */
 @Entity
@@ -19,7 +21,7 @@ import java.time.LocalDateTime;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class ProductChangeLog {
 
-    public enum Source { ADMIN_UPDATE, ADMIN_NUTRIENT_UPDATE, REPORT_DONE }
+    public enum Source { ADMIN_UPDATE, ADMIN_NUTRIENT_UPDATE, REPORT_DONE, SYNC_DEACTIVATE, SYNC_REACTIVATE }
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
