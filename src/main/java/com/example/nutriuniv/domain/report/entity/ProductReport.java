@@ -39,8 +39,8 @@ public class ProductReport {
     @Column(nullable = false, columnDefinition = "text")
     private String content;
 
-    @Column(length = 13)
-    private String barcode;                 // 어떤 바코드로 본 제품에서 제보했는지(선택)
+    @Column(length = 14)
+    private String barcode;                 // 어떤 바코드로 본 제품에서 제보했는지(선택, 14자리 정규화 값)
 
     @Column(name = "user_id")
     private Long userId;

@@ -39,8 +39,8 @@ public class AnalysisRequest {
     @Column(nullable = false, length = 20)
     private AnalysisRequestType type;
 
-    @Column(length = 13)
-    private String barcode;                 // NEW_PRODUCT — 13자리 정규화 값
+    @Column(length = 14)
+    private String barcode;                 // NEW_PRODUCT — 14자리 정규화 값
 
     @Column(length = 30)
     private String keyword;                 // NEW_PRODUCT — 검색어(정규화: trim·공백 축약)
@@ -54,8 +54,8 @@ public class AnalysisRequest {
     @Column(name = "brand_name", length = BRAND_MAX_LENGTH)
     private String brandName;               // 제품명 요청 — 브랜드(선택)
 
-    @Column(name = "origin_barcode", length = 13)
-    private String originBarcode;           // 제품명 요청 — 못 찾은 바코드에서 왔으면
+    @Column(name = "origin_barcode", length = 14)
+    private String originBarcode;           // 제품명 요청 — 못 찾은 바코드에서 왔으면 (14자리 정규화 값)
 
     @Column(name = "origin_keyword", length = 30)
     private String originKeyword;           // 제품명 요청 — 결과 없는 검색어에서 왔으면
