@@ -61,10 +61,15 @@ public class BrandLookupTables {
     }
 
     BrandLookupTables(String dir) {
+        this(dir, dir);
+    }
+
+    /** 테스트용 — 선택 파일(11-12 고침 · 쿠팡 상품명)만 다른 폴더에서 읽는다. */
+    BrandLookupTables(String dir, String optionalDir) {
         Tables t;
         String failure = null;
         try {
-            t = load(dir);
+            t = load(dir, optionalDir);
         } catch (RuntimeException e) {
             failure = e.getMessage();
             log.error("[BRAND] 조회표를 읽지 못해 브랜드 계산을 쓸 수 없습니다 — {}. 서버는 계속 뜹니다. "
@@ -94,7 +99,7 @@ public class BrandLookupTables {
         static final Tables EMPTY = new Tables(Map.of(), List.of(), Map.of(), Map.of(), Map.of(), Map.of(), Map.of());
     }
 
-    private static Tables load(String dir) {
+    private static Tables load(String dir, String optionalDir) {
         Map<String, String> dict = new HashMap<>();
         List<Map.Entry<String, String>> prefix = new ArrayList<>();
         for (Map<String, String> r : read(dir + "brand_dictionary.csv", true, "낱말(정규화)", "브랜드(표시 이름)", "붙여 쓴 이름에도 씀")) {
@@ -128,8 +133,8 @@ public class BrandLookupTables {
                 Map.copyOf(labels),
                 Map.copyOf(merge),
                 keyed(read(dir + "coupang_fix.csv", true, "영양 묶음 키", "브랜드(지금 값)"), "영양 묶음 키", "브랜드(지금 값)", false),
-                keyed(read(dir + "fix_1112.csv", false, "묶음 키", "브랜드"), "묶음 키", "브랜드", true),
-                keyed(read(dir + "coupang_names.csv", false, "묶음 키", "쿠팡 상품명"), "묶음 키", "쿠팡 상품명", false));
+                keyed(read(optionalDir + "fix_1112.csv", false, "묶음 키", "브랜드"), "묶음 키", "브랜드", true),
+                keyed(read(optionalDir + "coupang_names.csv", false, "묶음 키", "쿠팡 상품명"), "묶음 키", "쿠팡 상품명", false));
     }
 
     // ── 상태 ──────────────────────────────────────────────────────────────────
