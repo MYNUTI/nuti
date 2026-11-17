@@ -22,6 +22,7 @@ public record ProductResultResponse(
         String state,               // NO_SCORE | ANALYZED | PRODUCTION_STOPPED | STOCK_REMAINING | DISCONTINUED
         String stateLabel,
         CategoryInfo category,      // 분류가 없으면 null
+        String patientFoodNote,     // 마시는 환자용 균형영양식이면 「환자용 식품이에요」, 아니면 null (DATA_005)
         Serving serving,            // 1회 제공량이 없으면 null
         String basis,               // 100g | 100mL
         int kcalBand,               // 감량 점수에 쓴 하루 칼로리 구간

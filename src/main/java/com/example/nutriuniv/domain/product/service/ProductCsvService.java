@@ -46,6 +46,7 @@ public class ProductCsvService {
     static final String COL_INGREDIENTS  = "ingredients";
     static final String COL_SERVING_SIZE = "serving_size";
     static final String COL_DISCONTINUED = "is_discontinued";
+    static final String COL_PATIENT_FOOD = "is_patient_food";     // 선택 열 — 없으면 false
     static final String COL_HASH         = "content_hash";
     // 같이 보이는 칩(최대 2개) — 데이터 팀이 열을 추가하기 전까지의 가정: 열 이름 extra_categories, 중분류 코드를 | 로 구분. 열이 없으면 칩은 그대로 둔다
     static final String COL_EXTRA_CHIPS  = "extra_categories";

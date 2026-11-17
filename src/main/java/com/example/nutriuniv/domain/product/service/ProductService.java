@@ -172,15 +172,15 @@ public class ProductService {
 
     // ── 일반 유저: 상품 상세 조회 ─────────────────────────────────────────────────
 
-    /** 결과 화면 (v3 RSLT_002). kcalBand 는 감량 점수의 하루 칼로리 구간 — 없거나 4구간 밖이면 2000. */
+    /** 결과 화면 (v3 RSLT_002). 감량 점수의 칼로리 구간은 KcalBandResolver 가 정한다. */
     @Transactional
-    public ProductResultResponse getProduct(Long productId, Integer kcalBand, Actor actor) {
-        return getProduct(productId, kcalBand, null, actor);
+    public ProductResultResponse getProduct(Long productId, Actor actor) {
+        return getProduct(productId, null, actor);
     }
 
     /** source: 들어온 경로 (최근 본 제품 기록, RTN_001). */
     @Transactional
-    public ProductResultResponse getProduct(Long productId, Integer kcalBand, String source, Actor actor) {
+    public ProductResultResponse getProduct(Long productId, String source, Actor actor) {
 
         // 없는·비활성 제품 → 404 (클라는 검색으로 유도)
         Product product = productRepository.findById(productId)
@@ -192,7 +192,7 @@ public class ProductService {
         // 영양정보 행이 없으면 점수 없음(NO_SCORE) — 404 가 아니다. 성분값 보강 요청은 build 가 자동 등록
         ProductNutrient nutrient = productNutrientRepository.findById(productId).orElse(null);
         CoupangLink coupangLink = coupangLinkRepository.findByProduct(product).orElse(null);
-        ProductResultResponse result = productResultService.build(product, nutrient, coupangLink, kcalBandResolver.resolve(actor, kcalBand),
+        ProductResultResponse result = productResultService.build(product, nutrient, coupangLink, kcalBandResolver.resolve(actor),
                 actor, AnalysisRequestChannel.AUTO_RESULT);
         productResultService.recordView(actor, productId, ViewSource.from(source));
         return result;

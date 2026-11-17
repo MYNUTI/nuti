@@ -44,14 +44,13 @@ public class RankingController {
             Actor actor,
             @Parameter(description = "칩 코드 (중분류 4자리 · 합산 칩)") @RequestParam(required = false) String category,
             @Parameter(description = "WEIGHT_LOSS | MUSCLE_GAIN") @RequestParam(required = false) String goal,
-            @Parameter(description = "하루 칼로리 구간 (1500·2000·2500·3000)") @RequestParam(required = false) Integer kcalBand,
             @RequestParam(required = false) String sort,
             @RequestParam(required = false) List<String> brands,
             @RequestParam(required = false) List<String> nutrients,
             @RequestParam(required = false) List<String> sellers,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return ResponseEntity.ok(CommonResponse.success(rankingService.ranking(category, goal, kcalBand, sort,
+        return ResponseEntity.ok(CommonResponse.success(rankingService.ranking(category, goal, sort,
                 RankingService.filters(brands, nutrients, sellers), page, size, actor)));
     }
 
@@ -62,11 +61,10 @@ public class RankingController {
             Actor actor,
             @Parameter(description = "대분류 코드 2자리") @RequestParam String major,
             @RequestParam(required = false) String goal,
-            @RequestParam(required = false) Integer kcalBand,
             @RequestParam(required = false) List<String> brands,
             @RequestParam(required = false) List<String> nutrients,
             @RequestParam(required = false) List<String> sellers) {
-        return ResponseEntity.ok(CommonResponse.success(rankingService.overview(major, goal, kcalBand,
+        return ResponseEntity.ok(CommonResponse.success(rankingService.overview(major, goal,
                 RankingService.filters(brands, nutrients, sellers), actor)));
     }
 

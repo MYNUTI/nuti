@@ -6,7 +6,7 @@ import java.util.List;
 
 /**
  * 열량구간 4종 (1500/2000/2500/3000 kcal, v3 CORE_008). 두 목표 모두 구간마다 슬롯을 만든다.
- * 요청에 구간이 없거나 4종 밖이면 2000(DEFAULT) — 결과 API 의 kcalBand 파라미터가 {@link #ofOrDefault} 로 읽는다.
+ * 구간이 없거나 4종 밖이면 2000(DEFAULT) — 저장한 몸 정보의 구간을 {@link #ofOrDefault} 로 읽는다.
  * <p>감량 목표의 에너지밀도 상한 M 은 구간에 따라 400~900 사이를 움직인다(구 PnsCalculator 공식 그대로). 근육 증가는 기준값 표의 max_value(400) 고정.
  */
 public enum EerBand {

@@ -59,12 +59,12 @@ public class ProductCompareService {
     // ── GET /products/{id}/alternatives ──────────────────────────────────────────
 
     @Transactional(readOnly = true)
-    public AlternativesResponse alternatives(Long productId, String goalParam, Integer kcalBand, int page, int size, Actor actor) {
+    public AlternativesResponse alternatives(Long productId, String goalParam, int page, int size, Actor actor) {
         if (page < 0 || size < 1 || size > MAX_PAGE_SIZE) {
             throw new CustomException(ErrorCode.INVALID_QUERY_PARAM, "page는 0 이상, size는 1~" + MAX_PAGE_SIZE + "이어야 합니다.");
         }
         GoalType goal = goal(goalParam);
-        EerBand band = kcalBandResolver.resolve(actor, kcalBand);
+        EerBand band = kcalBandResolver.resolve(actor);
         Owner owner = ownerResolver.resolveOrNull(actor);
 
         ProductCardService.Row row = cardService.rows(List.of(productId)).get(productId);
@@ -121,13 +121,13 @@ public class ProductCompareService {
     // ── GET /products/compare ────────────────────────────────────────────────────
 
     @Transactional(readOnly = true)
-    public CompareResponse compare(List<Long> idsParam, String goalParam, Integer kcalBand, Actor actor) {
+    public CompareResponse compare(List<Long> idsParam, String goalParam, Actor actor) {
         List<Long> ids = idsParam == null ? List.of() : new ArrayList<>(new LinkedHashSet<>(idsParam));
         if (ids.size() < MIN_COMPARE || ids.size() > MAX_COMPARE) {
             throw new CustomException(ErrorCode.INVALID_QUERY_PARAM, "ids는 서로 다른 제품 " + MIN_COMPARE + "~" + MAX_COMPARE + "개여야 합니다.");
         }
         GoalType goal = goal(goalParam);
-        EerBand band = kcalBandResolver.resolve(actor, kcalBand);
+        EerBand band = kcalBandResolver.resolve(actor);
         Owner owner = ownerResolver.resolveOrNull(actor);
 
         List<ProductCard> cards = cardService.cards(ids, goal, band, owner, null);

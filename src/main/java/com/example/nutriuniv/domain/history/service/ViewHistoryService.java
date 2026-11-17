@@ -25,9 +25,7 @@ import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.EnumMap;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -64,13 +62,13 @@ public class ViewHistoryService {
     private record Viewed(long productId, LocalDateTime viewedAt, String source, long count) {}
 
     @Transactional(readOnly = true)
-    public HistoryResponse list(Actor actor, String goalParam, Integer kcalBand, List<String> gradeParam, int page, int size) {
+    public HistoryResponse list(Actor actor, String goalParam, List<String> gradeParam, int page, int size) {
         if (page < 0 || size < 1 || size > MAX_PAGE_SIZE) {
             throw new CustomException(ErrorCode.INVALID_QUERY_PARAM, "page는 0 이상, size는 1~" + MAX_PAGE_SIZE + "이어야 합니다.");
         }
         Owner owner = ownerResolver.resolve(actor);
         GoalType goal = goalParam == null || goalParam.isBlank() ? GoalType.DEFAULT : GoalType.from(goalParam);
-        EerBand band = kcalBandResolver.resolve(actor, kcalBand);
+        EerBand band = kcalBandResolver.resolve(actor);
         List<String> grades = grades(gradeParam);
 
         List<Object> args = new ArrayList<>(List.of(goal.name(), EerBand.slot(goal, band)));
@@ -108,45 +106,15 @@ public class ViewHistoryService {
 
     // ── 홈 집계 (SRCH_006) ────────────────────────────────────────────────────────
 
-    /** 본 제품 수(제품 기준)와 목표별 등급 분포(A~E · NONE). 소유자가 없으면 0. */
-    public record ViewedStats(long viewedCount, Map<GoalType, Map<String, Long>> distribution) {}
-
+    /** 본 제품 수(제품 기준). 소유자가 없으면 0 — 홈 첫 방문 구성을 고르는 데 쓴다. */
     @Transactional(readOnly = true)
-    public ViewedStats stats(Owner owner, EerBand band) {
-        Map<GoalType, Map<String, Long>> dist = new EnumMap<>(GoalType.class);
-        for (GoalType g : GoalType.values()) {
-            Map<String, Long> m = new LinkedHashMap<>();
-            for (String s : GRADES) m.put(s, 0L);
-            dist.put(g, m);
-        }
-        if (owner == null) return new ViewedStats(0, dist);
-
+    public long viewedCount(Owner owner) {
+        if (owner == null) return 0;
         List<Object> args = new ArrayList<>();
-        String viewed = "SELECT DISTINCT h.product_id FROM view_history h JOIN products p ON p.id = h.product_id AND p.is_active = TRUE"
-                + " WHERE " + ownerWhere(owner, args);
-        Long count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM (" + viewed + ") v", Long.class, args.toArray());
-        long n = count == null ? 0 : count;
-        if (n == 0) return new ViewedStats(0, dist);
-
-        List<Object> gArgs = new ArrayList<>();
-        StringBuilder slots = new StringBuilder();
-        for (GoalType g : GoalType.values()) {
-            if (!slots.isEmpty()) slots.append(" OR ");
-            slots.append("(pg.goal = ? AND pg.eer_band = ?)");
-            gArgs.add(g.name());
-            gArgs.add(EerBand.slot(g, band));
-        }
-        gArgs.addAll(args);
-        jdbcTemplate.query("SELECT pg.goal, TRIM(pg.grade), COUNT(*) FROM product_grades pg"
-                        + " JOIN products p ON p.id = pg.product_id AND p.status = 'ANALYZED'"
-                        + " WHERE (" + slots + ") AND pg.product_id IN (" + viewed + ") GROUP BY 1, 2",
-                rs -> {
-                    dist.get(GoalType.valueOf(rs.getString(1))).merge(rs.getString(2), rs.getLong(3), Long::sum);
-                }, gArgs.toArray());
-        Long none = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM products p WHERE p.status <> 'ANALYZED' AND p.id IN (" + viewed + ")",
+        Long n = jdbcTemplate.queryForObject("SELECT COUNT(DISTINCT h.product_id) FROM view_history h"
+                + " JOIN products p ON p.id = h.product_id AND p.is_active = TRUE WHERE " + ownerWhere(owner, args),
                 Long.class, args.toArray());
-        for (Map<String, Long> m : dist.values()) m.put("NONE", none == null ? 0 : none);
-        return new ViewedStats(n, dist);
+        return n == null ? 0 : n;
     }
 
     // ── 내부 ─────────────────────────────────────────────────────────────────────
