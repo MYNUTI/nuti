@@ -33,3 +33,5 @@ app.frontend-url={frontend_uri}
 publicdata.foodsafety.key={your_foodsafety_key}
 publicdata.datagokr.service-key={your_datagokr_decoding_key}
 publicdata.datagokr.daily-limit=1000
+# 공공데이터 스케줄러 — 운영 서버 한 대에서만 true. 로컬·테스트 서버가 켜면 공공 API 하루 한도를 같이 쓴다
+publicdata.scheduler.enabled=false
