@@ -42,7 +42,8 @@ public class AdminProductSyncController {
 
     @Operation(summary = "반영",
             description = "content_hash 가 다르거나 새로 생긴 제품만 실제 product 에 반영합니다(관리자가 고친 제품은 건너뜀). " +
-                    "원천에서 사라진 제품은 비활성으로 돌리되, 적재 제품의 10%를 넘으면 수집이 덜 된 것으로 보고 건너뜁니다. " +
+                    "원천에서 사라진 제품은 비활성으로 돌립니다 — 복제 테이블에 들어 있는 출처(source)의 제품만 대상이고 다른 출처(올리브영 등)는 건드리지 않습니다. " +
+                    "출처마다 사라진 제품이 그 출처 적재 제품의 10%를 넘으면 수집이 덜 된 것으로 보고 그 출처만 건너뜁니다(sources 에 출처별 결과). " +
                     "바뀐 것이 있으면 등급을 백그라운드로 다시 계산합니다. 복제 테이블이 비었거나 다른 적재·반영 중이면 409.")
     @PostMapping("/apply")
     public ResponseEntity<CommonResponse<SyncApplyResponse>> apply(

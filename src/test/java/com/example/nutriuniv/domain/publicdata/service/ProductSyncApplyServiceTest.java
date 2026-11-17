@@ -5,9 +5,12 @@ import com.example.nutriuniv.domain.category.repository.CategoryRepository;
 import com.example.nutriuniv.domain.grade.service.GradeBatchService;
 import com.example.nutriuniv.domain.product.service.ProductCsvRowService;
 import com.example.nutriuniv.domain.product.service.ProductLoadService;
+import com.example.nutriuniv.domain.publicdata.dto.SourceDeactivation;
 import com.example.nutriuniv.domain.publicdata.dto.SyncApplyResponse;
+import com.example.nutriuniv.domain.publicdata.dto.SyncPreviewResponse;
 import com.example.nutriuniv.domain.publicdata.repository.ProductStagingRepository;
 import com.example.nutriuniv.domain.publicdata.repository.ProductStagingRepository.ChangedRow;
+import com.example.nutriuniv.domain.publicdata.repository.ProductStagingRepository.DisappearedRow;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -25,7 +28,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
-/** 복제 테이블 → 실제 product 반영 — 후보만 넘김 · 다시 살림 · 사라진 제품 비활성 · 대량 비활성 방지 · 실패 집계. */
+/** 복제 테이블 → 실제 product 반영 — 후보만 넘김 · 다시 살림 · 출처별 사라진 제품 비활성 · 출처별 대량 비활성 방지 · 실패 집계. */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
 class ProductSyncApplyServiceTest {
@@ -46,8 +49,8 @@ class ProductSyncApplyServiceTest {
                 gradeBatchService, jdbcTemplate, transactionManager);
         when(loadService.start(ProductSyncApplyService.LOAD_NAME)).thenReturn(9L);
         when(categoryRepository.findAllByCodeIsNotNull()).thenReturn(List.of());
-        when(stagingRepository.findDisappearedProductIds()).thenReturn(List.of());
-        when(stagingRepository.countActiveLoadedProducts()).thenReturn(100L);
+        when(stagingRepository.findDisappeared()).thenReturn(List.of());
+        when(stagingRepository.countActiveLoadedBySource()).thenReturn(Map.of("nutri_db", 100L));
     }
 
     @Test
@@ -107,7 +110,7 @@ class ProductSyncApplyServiceTest {
     void 사라진_제품은_비활성으로_돌리고_이력을_남긴다() {
         when(stagingRepository.count()).thenReturn(100L);
         when(stagingRepository.findChanged()).thenReturn(List.of());
-        when(stagingRepository.findDisappearedProductIds()).thenReturn(List.of(7L, 8L));   // 100개 중 2개 = 2%
+        when(stagingRepository.findDisappeared()).thenReturn(gone("nutri_db", 7L, 8L));   // 100개 중 2개 = 2%
         when(jdbcTemplate.update(contains("SET is_active = FALSE"), anyLong())).thenReturn(1);
 
         SyncApplyResponse r = service.apply(false);
@@ -115,37 +118,94 @@ class ProductSyncApplyServiceTest {
         assertFalse(r.deactivationSkipped());
         assertEquals(2, r.disappearedCount());
         assertEquals(2, r.deactivatedCount());
+        assertEquals(List.of(new SourceDeactivation("nutri_db", 100, 2, 2, false)), r.sources());
         verify(jdbcTemplate).update(contains("SYNC_DEACTIVATE"), eq(7L));
         verify(jdbcTemplate).update(contains("SYNC_DEACTIVATE"), eq(8L));
         verify(gradeBatchService).recomputeAsync(any());
     }
 
     @Test
-    void 사라진_제품이_10퍼센트를_넘으면_비활성을_건너뛴다() {
-        when(stagingRepository.count()).thenReturn(80L);
+    void 출처마다_10퍼센트를_따로_검사해_넘는_출처만_건너뛴다() {
+        // 전체로 보면 22/1100 = 2% 라 안 걸리지만, foodqr 은 20/100 = 20% 라 그 출처만 건너뛴다
+        when(stagingRepository.count()).thenReturn(1080L);
         when(stagingRepository.findChanged()).thenReturn(List.of());
-        when(stagingRepository.findDisappearedProductIds()).thenReturn(ids(20));          // 100개 중 20개 = 20%
+        when(stagingRepository.countActiveLoadedBySource()).thenReturn(Map.of("nutri_db", 1000L, "foodqr", 100L));
+        List<DisappearedRow> rows = new ArrayList<>(gone("nutri_db", 1L, 2L));
+        for (long id = 101; id <= 120; id++) rows.add(new DisappearedRow(id, "foodqr"));
+        when(stagingRepository.findDisappeared()).thenReturn(rows);
+        when(jdbcTemplate.update(contains("SET is_active = FALSE"), anyLong())).thenReturn(1);
 
         SyncApplyResponse r = service.apply(false);
 
         assertTrue(r.deactivationSkipped());
-        assertEquals(20, r.disappearedCount());
-        assertEquals(0, r.deactivatedCount());
-        verify(jdbcTemplate, never()).update(contains("SET is_active = FALSE"), anyLong());
-        verify(gradeBatchService, never()).recomputeAsync(any());   // 바뀐 것이 없다
+        assertEquals(22, r.disappearedCount());
+        assertEquals(2, r.deactivatedCount());                 // nutri_db 2건만
+        assertEquals(List.of(
+                new SourceDeactivation("foodqr", 100, 20, 0, true),
+                new SourceDeactivation("nutri_db", 1000, 2, 2, false)), r.sources());   // 출처 이름순
+        verify(jdbcTemplate, never()).update(contains("SET is_active = FALSE"), eq(101L));
+        verify(jdbcTemplate).update(contains("SET is_active = FALSE"), eq(1L));
     }
 
     @Test
     void 강제하면_10퍼센트를_넘어도_비활성으로_돌린다() {
         when(stagingRepository.count()).thenReturn(80L);
         when(stagingRepository.findChanged()).thenReturn(List.of());
-        when(stagingRepository.findDisappearedProductIds()).thenReturn(ids(20));
+        when(stagingRepository.findDisappeared()).thenReturn(gone("nutri_db", ids(20)));           // 100개 중 20개 = 20%
         when(jdbcTemplate.update(contains("SET is_active = FALSE"), anyLong())).thenReturn(1);
 
         SyncApplyResponse r = service.apply(true);
 
         assertFalse(r.deactivationSkipped());
         assertEquals(20, r.deactivatedCount());
+    }
+
+    @Test
+    void 강제하지_않으면_10퍼센트를_넘는_출처는_건너뛰고_등급도_다시_계산하지_않는다() {
+        when(stagingRepository.count()).thenReturn(80L);
+        when(stagingRepository.findChanged()).thenReturn(List.of());
+        when(stagingRepository.findDisappeared()).thenReturn(gone("nutri_db", ids(20)));
+
+        SyncApplyResponse r = service.apply(false);
+
+        assertTrue(r.deactivationSkipped());
+        assertEquals(0, r.deactivatedCount());
+        verify(jdbcTemplate, never()).update(contains("SET is_active = FALSE"), anyLong());
+        verify(gradeBatchService, never()).recomputeAsync(any());   // 바뀐 것이 없다
+    }
+
+    @Test
+    void 대기_테이블이_맡지_않는_출처는_결과에_나오지_않는다() {
+        // 저장소 쿼리가 대기 테이블에 있는 출처만 돌려준다 — 올리브영은 대상도 결과도 아니다
+        when(stagingRepository.count()).thenReturn(100L);
+        when(stagingRepository.findChanged()).thenReturn(List.of());
+        when(stagingRepository.countActiveLoadedBySource()).thenReturn(Map.of("nutri_db", 100L, "foodqr", 50L));
+
+        SyncApplyResponse r = service.apply(false);
+
+        assertEquals(List.of("foodqr", "nutri_db"), r.sources().stream().map(SourceDeactivation::source).toList());
+        assertEquals(0, r.deactivatedCount());
+    }
+
+    @Test
+    void 미리_보기도_출처별로_센다() {
+        when(stagingRepository.count()).thenReturn(1080L);
+        when(stagingRepository.findChanged()).thenReturn(List.of(new ChangedRow("A", null, false)));
+        when(stagingRepository.countActiveLoadedBySource()).thenReturn(Map.of("nutri_db", 1000L, "foodqr", 100L));
+        List<DisappearedRow> rows = new ArrayList<>(gone("nutri_db", 1L));
+        for (long id = 101; id <= 120; id++) rows.add(new DisappearedRow(id, "foodqr"));
+        when(stagingRepository.findDisappeared()).thenReturn(rows);
+
+        SyncPreviewResponse p = service.preview();
+
+        assertEquals(1, p.createCount());
+        assertEquals(21, p.disappearedCount());
+        assertEquals(1100, p.activeLoadedCount());
+        assertTrue(p.massDeactivation());
+        assertEquals(List.of(
+                new SourceDeactivation("foodqr", 100, 20, 0, true),
+                new SourceDeactivation("nutri_db", 1000, 1, 0, false)), p.sources());
+        verifyNoInteractions(rowService, loadService, gradeBatchService);
     }
 
     @Test
@@ -189,9 +249,13 @@ class ProductSyncApplyServiceTest {
         return out;
     }
 
-    private static List<Long> ids(int n) {
-        List<Long> out = new ArrayList<>();
-        for (long i = 1; i <= n; i++) out.add(i);
+    private static List<DisappearedRow> gone(String source, Long... productIds) {
+        return Arrays.stream(productIds).map(id -> new DisappearedRow(id, source)).toList();
+    }
+
+    private static Long[] ids(int n) {
+        Long[] out = new Long[n];
+        for (int i = 0; i < n; i++) out[i] = (long) (i + 1);
         return out;
     }
 }

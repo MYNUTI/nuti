@@ -55,18 +55,44 @@ public class ProductStagingRepository {
             ORDER BY s.master_id
             """;
 
-    /** 원천에서 사라진 행 — 적재로 들어온(master_id 있는) 활성 제품 중 복제 테이블에 없는 것. 관리자가 고친 제품은 건드리지 않는다. */
+    /**
+     * 이번 대기 테이블이 맡는 출처 — 대기 테이블에 한 행이라도 있는 source.
+     * 최신화는 이 출처의 제품만 비활성으로 돌린다. 다른 경로로 들어온 출처(올리브영 CSV 등)는 대기 테이블에 없으니 건드리지 않는다.
+     * 출처 목록을 설정에 고정하지 않는 이유: 수집 실패로 한 출처가 통째로 빠지면 고정 목록은 그 출처 제품을 전부 비활성으로 돌리지만,
+     * 이 방식은 그 출처를 아예 맡지 않는다.
+     */
+    private static final String MANAGED_SOURCES = "SELECT DISTINCT s2.source FROM product_staging s2 WHERE s2.source IS NOT NULL";
+
+    /**
+     * 원천에서 사라진 행 — 대기 테이블이 맡는 출처의, 적재로 들어온(master_id 있는) 활성 제품 중 대기 테이블에 없는 것.
+     * 관리자가 고친 제품은 건드리지 않는다. source 가 비어 있는 제품은 어느 출처에도 속하지 않아 대상이 아니다.
+     */
     private static final String DISAPPEARED_SQL = """
-            SELECT p.id
+            SELECT p.id, p.source
             FROM   products p
             WHERE  p.master_id IS NOT NULL
               AND  p.is_active = TRUE
               AND  p.manually_corrected = FALSE
+              AND  p.source IN (""" + MANAGED_SOURCES + """
+            )
               AND  NOT EXISTS (SELECT 1 FROM product_staging s WHERE s.master_id = p.master_id)
-            ORDER BY p.id
+            ORDER BY p.source, p.id
+            """;
+
+    /** 대기 테이블이 맡는 출처별 활성 적재 제품 수 — 출처별 대량 비활성 방지 기준. */
+    private static final String ACTIVE_LOADED_BY_SOURCE_SQL = """
+            SELECT p.source, COUNT(*) AS n
+            FROM   products p
+            WHERE  p.master_id IS NOT NULL
+              AND  p.is_active = TRUE
+              AND  p.source IN (""" + MANAGED_SOURCES + """
+            )
+            GROUP BY p.source
             """;
 
     public record ChangedRow(String masterId, Long productId, boolean reactivate) {}
+
+    public record DisappearedRow(Long productId, String source) {}
 
     private final JdbcTemplate jdbcTemplate;
 
@@ -105,15 +131,17 @@ public class ProductStagingRepository {
                 rs.getBoolean("reactivate")));
     }
 
-    public List<Long> findDisappearedProductIds() {
-        return jdbcTemplate.queryForList(DISAPPEARED_SQL, Long.class);
+    public List<DisappearedRow> findDisappeared() {
+        return jdbcTemplate.query(DISAPPEARED_SQL, (rs, i) -> new DisappearedRow(rs.getLong("id"), rs.getString("source")));
     }
 
-    /** 적재로 들어온 활성 제품 수 — 대량 비활성 방지 기준. */
-    public long countActiveLoadedProducts() {
-        Long n = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM products WHERE master_id IS NOT NULL AND is_active = TRUE", Long.class);
-        return n == null ? 0 : n;
+    /** 출처 → 활성 적재 제품 수 (대기 테이블이 맡는 출처만). */
+    public Map<String, Long> countActiveLoadedBySource() {
+        Map<String, Long> out = new HashMap<>();
+        jdbcTemplate.query(ACTIVE_LOADED_BY_SOURCE_SQL, rs -> {
+            out.put(rs.getString("source"), rs.getLong("n"));
+        });
+        return out;
     }
 
     /** master_id 들의 행을 「컬럼명 → 문자열 값」 맵으로. NULL 은 맵에 null 로 들어간다. */

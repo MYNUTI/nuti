@@ -8,6 +8,7 @@ import com.example.nutriuniv.domain.category.repository.CategoryRepository;
 import com.example.nutriuniv.domain.grade.service.GradeBatchService;
 import com.example.nutriuniv.domain.product.service.ProductCsvRowService;
 import com.example.nutriuniv.domain.product.service.ProductLoadService;
+import com.example.nutriuniv.domain.publicdata.dto.SourceDeactivation;
 import com.example.nutriuniv.domain.publicdata.dto.SyncApplyResponse;
 import com.example.nutriuniv.domain.publicdata.dto.SyncPreviewResponse;
 import com.example.nutriuniv.domain.publicdata.repository.ProductStagingRepository;
@@ -27,7 +28,8 @@ import java.util.*;
  *       바코드 정규화 · 브랜드 · 분류 · 성분 · 분석 상태를 CSV 적재와 똑같이 처리하고, 제품마다 따로 커밋한다</li>
  *   <li>최신화가 비활성으로 돌렸던 제품이 원천에 다시 나타나면 살린다(관리자가 직접 비활성으로 돌린 제품은 그대로)</li>
  *   <li>원천에서 사라진 제품은 지우지 않고 is_active=false 로 돌리고 변경 이력(SYNC_DEACTIVATE)을 남긴다.
- *       단, 사라진 제품이 적재 제품의 10%를 넘으면 수집이 덜 된 것으로 보고 비활성을 건너뛴다(allowMassDeactivation 으로 강제)</li>
+ *       <b>출처별로 관리한다</b> — 대기 테이블에 들어 있는 출처(source)의 제품만 대상이고, 다른 경로로 들어온 출처(올리브영 CSV 등)는 건드리지 않는다.
+ *       출처마다 사라진 제품이 그 출처 적재 제품의 10%를 넘으면 수집이 덜 된 것으로 보고 그 출처만 비활성을 건너뛴다(allowMassDeactivation 으로 강제)</li>
  *   <li>바뀐 것이 있으면 등급을 백그라운드로 전량 재계산한다</li>
  * </ol>
  * 적재 기록(ProductLoadService)을 같이 쓴다 — 반영 중에는 CSV 적재·다른 반영·등급 기준 재산출이 막힌다.
@@ -36,7 +38,7 @@ import java.util.*;
 @Service
 public class ProductSyncApplyService {
 
-    /** 사라진 제품이 적재 제품의 이 비율을 넘으면 비활성을 건너뛴다. */
+    /** 한 출처에서 사라진 제품이 그 출처 적재 제품의 이 비율을 넘으면 그 출처는 비활성을 건너뛴다. */
     static final double MAX_DEACTIVATION_RATIO = 0.10;
     static final String LOAD_NAME = "product-sync";
     private static final int CHUNK = 500;
@@ -70,10 +72,19 @@ public class ProductSyncApplyService {
         long create = changed.stream().filter(r -> r.productId() == null).count();
         long reactivate = changed.stream().filter(ChangedRow::reactivate).count();
         long update = changed.size() - create - reactivate;
-        long disappeared = stagingRepository.findDisappearedProductIds().size();
-        long activeLoaded = stagingRepository.countActiveLoadedProducts();
-        return new SyncPreviewResponse(staged, create, update, reactivate, disappeared, activeLoaded,
-                exceedsMassDeactivation(disappeared, activeLoaded));
+
+        Map<String, List<Long>> disappeared = groupBySource(stagingRepository.findDisappeared());
+        Map<String, Long> activeLoaded = stagingRepository.countActiveLoadedBySource();
+        List<SourceDeactivation> sources = new ArrayList<>();
+        for (String source : sourcesOf(disappeared, activeLoaded)) {
+            int gone = disappeared.getOrDefault(source, List.of()).size();
+            long active = activeLoaded.getOrDefault(source, 0L);
+            sources.add(new SourceDeactivation(source, active, gone, 0, exceedsMassDeactivation(gone, active)));
+        }
+        long disappearedTotal = sources.stream().mapToLong(SourceDeactivation::disappearedCount).sum();
+        long activeTotal = activeLoaded.values().stream().mapToLong(Long::longValue).sum();
+        boolean mass = sources.stream().anyMatch(SourceDeactivation::skipped);
+        return new SyncPreviewResponse(staged, create, update, reactivate, disappearedTotal, activeTotal, mass, sources);
     }
 
     public SyncApplyResponse apply(boolean allowMassDeactivation) {
@@ -87,8 +98,7 @@ public class ProductSyncApplyService {
         Counts c = new Counts();
         List<SyncApplyResponse.FailItem> fails = new ArrayList<>();
         List<ChangedRow> changed;
-        List<Long> disappeared;
-        boolean skipDeactivation;
+        List<SourceDeactivation> sources = new ArrayList<>();
         try {
             changed = stagingRepository.findChanged();
             Map<String, Category> categoriesByCode = new HashMap<>();
@@ -103,14 +113,21 @@ public class ProductSyncApplyService {
                 }
             }
 
-            disappeared = stagingRepository.findDisappearedProductIds();
-            long activeLoaded = stagingRepository.countActiveLoadedProducts();
-            skipDeactivation = !allowMassDeactivation && exceedsMassDeactivation(disappeared.size(), activeLoaded);
-            if (skipDeactivation) {
-                log.warn("[SYNC] 원천에서 사라진 제품 {}건이 적재 제품 {}건의 {}%를 넘어 비활성을 건너뜁니다 — 수집이 덜 됐는지 확인하세요",
-                        disappeared.size(), activeLoaded, (int) (MAX_DEACTIVATION_RATIO * 100));
-            } else {
-                c.deactivated = deactivate(disappeared);
+            Map<String, List<Long>> disappeared = groupBySource(stagingRepository.findDisappeared());
+            Map<String, Long> activeLoaded = stagingRepository.countActiveLoadedBySource();
+            for (String source : sourcesOf(disappeared, activeLoaded)) {
+                List<Long> ids = disappeared.getOrDefault(source, List.of());
+                long active = activeLoaded.getOrDefault(source, 0L);
+                boolean skip = !allowMassDeactivation && exceedsMassDeactivation(ids.size(), active);
+                int done = 0;
+                if (skip) {
+                    log.warn("[SYNC] 출처 {} — 사라진 제품 {}건이 적재 제품 {}건의 {}%를 넘어 비활성을 건너뜁니다. 수집이 덜 됐는지 확인하세요",
+                            source, ids.size(), active, (int) (MAX_DEACTIVATION_RATIO * 100));
+                } else {
+                    done = deactivate(ids);
+                }
+                c.deactivated += done;
+                sources.add(new SourceDeactivation(source, active, ids.size(), done, skip));
             }
         } catch (RuntimeException e) {
             loadService.fail(loadId);
@@ -119,17 +136,35 @@ public class ProductSyncApplyService {
 
         int processed = c.created + c.updated + c.protectedRows + c.failed;
         int unchanged = (int) staged - processed;
+        int disappearedTotal = sources.stream().mapToInt(SourceDeactivation::disappearedCount).sum();
+        boolean anySkipped = sources.stream().anyMatch(SourceDeactivation::skipped);
         loadService.finish(loadId, (int) staged, c.created, c.updated, unchanged, c.protectedRows, c.failed);
-        log.info("[SYNC] 반영 id={} — 복제 {} · 후보 {} · 새로 {} · 수정 {} · 보호 {} · 살림 {} · 비활성 {}/{}{} · 실패 {}",
+        log.info("[SYNC] 반영 id={} — 대기 {} · 후보 {} · 새로 {} · 수정 {} · 보호 {} · 살림 {} · 비활성 {}/{} · 실패 {} · 출처별 {}",
                 loadId, staged, changed.size(), c.created, c.updated, c.protectedRows, c.reactivated,
-                c.deactivated, disappeared.size(), skipDeactivation ? "(건너뜀)" : "", c.failed);
+                c.deactivated, disappearedTotal, c.failed, sources);
 
         if (c.created + c.updated + c.reactivated + c.deactivated > 0) {
             gradeBatchService.recomputeAsync(LOAD_NAME);
         }
 
         return new SyncApplyResponse(loadId, staged, changed.size(), c.created, c.updated, unchanged, c.protectedRows,
-                c.reactivated, c.deactivated, disappeared.size(), skipDeactivation, c.failed, fails);
+                c.reactivated, c.deactivated, disappearedTotal, anySkipped, sources, c.failed, fails);
+    }
+
+    /** 사라진 제품을 출처별로. 출처 순서는 이름순(응답 · 로그가 매번 같은 순서로 나오게). */
+    private static Map<String, List<Long>> groupBySource(List<ProductStagingRepository.DisappearedRow> rows) {
+        Map<String, List<Long>> out = new TreeMap<>();
+        for (ProductStagingRepository.DisappearedRow r : rows) {
+            out.computeIfAbsent(r.source(), k -> new ArrayList<>()).add(r.productId());
+        }
+        return out;
+    }
+
+    /** 대기 테이블이 맡는 출처 — 활성 적재 제품이 있거나 사라진 제품이 있는 출처, 이름순. */
+    private static List<String> sourcesOf(Map<String, List<Long>> disappeared, Map<String, Long> activeLoaded) {
+        TreeSet<String> all = new TreeSet<>(activeLoaded.keySet());
+        all.addAll(disappeared.keySet());
+        return List.copyOf(all);
     }
 
     private void applyOne(ChangedRow ch, Map<String, String> row, Map<String, Category> categoriesByCode,
