@@ -46,6 +46,9 @@ public class ProductCsvRowService {
 
     private static final String SPLIT = "[|,;\\s]+";
 
+    /** 다이어트·단백질 대분류 — 환자용 식품은 이 아래 칩에 넣지 않는다(DATA_005 · 체중 관리용으로 보이지 않게). */
+    static final String DIET_MAJOR_CODE = "01";
+
     private final ProductRepository productRepository;
     private final ProductNutrientRepository productNutrientRepository;
     private final ProductCategoryChipRepository chipRepository;
@@ -68,6 +71,10 @@ public class ProductCsvRowService {
         if (existing != null && !hash.isEmpty() && hash.equals(existing.getContentHash())) return Outcome.UNCHANGED;
 
         Category category = primaryCategory(item.get(ProductCsvService.COL_CATEGORY), categoriesByCode);
+        boolean patientFood = parseBoolean(item.get(ProductCsvService.COL_PATIENT_FOOD), ProductCsvService.COL_PATIENT_FOOD);
+        if (patientFood && inDietMajor(category)) {
+            throw new CustomException(ErrorCode.BAD_REQUEST, "환자용 식품은 다이어트·단백질 중분류에 넣을 수 없습니다: " + category.getCode());
+        }
         Brand brand = brand(item.get(ProductCsvService.COL_BRAND), brandCache);
 
         Product product = existing != null ? existing : productRepository.save(Product.loaded(item.masterId(), name));
@@ -76,11 +83,12 @@ public class ProductCsvRowService {
                 blankToNull(item.get(ProductCsvService.COL_SOURCE)),
                 blankToNull(item.get(ProductCsvService.COL_MAKER)),
                 blankToNull(item.get(ProductCsvService.COL_INGREDIENTS)),
-                parseBoolean(item.get(ProductCsvService.COL_DISCONTINUED)),
+                parseBoolean(item.get(ProductCsvService.COL_DISCONTINUED), ProductCsvService.COL_DISCONTINUED),
+                patientFood,
                 blankToNull(hash));
 
         barcodeService.replace(product, barcodes(item));
-        if (withChips) replaceChips(product, category, item.get(ProductCsvService.COL_EXTRA_CHIPS), categoriesByCode);
+        if (withChips) replaceChips(product, category, item.get(ProductCsvService.COL_EXTRA_CHIPS), categoriesByCode, patientFood);
 
         ProductNutrient nutrient = productNutrientRepository.findById(product.getId())
                 .orElseGet(() -> ProductNutrient.create(product));
@@ -128,8 +136,8 @@ public class ProductCsvRowService {
         return List.copyOf(out);
     }
 
-    /** 같이 보이는 칩 — 최대 2개, 소속 중분류와 같은 코드는 뺀다. 없는 코드나 3개 이상이면 실패. */
-    private void replaceChips(Product product, Category primary, String raw, Map<String, Category> categoriesByCode) {
+    /** 같이 보이는 칩 — 최대 2개, 소속 중분류와 같은 코드는 뺀다. 환자용 식품이면 다이어트·단백질 칩도 뺀다. 없는 코드나 3개 이상이면 실패. */
+    private void replaceChips(Product product, Category primary, String raw, Map<String, Category> categoriesByCode, boolean patientFood) {
         Set<Long> wanted = new LinkedHashSet<>();
         Map<Long, Category> byId = new HashMap<>();
         for (String token : raw.split(SPLIT)) {
@@ -139,6 +147,10 @@ public class ProductCsvRowService {
                 throw new CustomException(ErrorCode.BAD_REQUEST, "없는 칩 코드입니다: " + token);
             }
             if (primary != null && c.getId().equals(primary.getId())) continue;
+            if (patientFood && inDietMajor(c)) {
+                log.warn("[ProductLoad] 환자용 식품이라 다이어트·단백질 칩을 뺌 — master_id={} chip={}", product.getMasterId(), c.getCode());
+                continue;
+            }
             wanted.add(c.getId());
             byId.put(c.getId(), c);
         }
@@ -151,6 +163,10 @@ public class ProductCsvRowService {
         for (Long id : wanted) chipRepository.save(ProductCategoryChip.of(product, byId.get(id)));
     }
 
+    private static boolean inDietMajor(Category c) {
+        return c != null && c.getParent() != null && DIET_MAJOR_CODE.equals(c.getParent().getCode());
+    }
+
     /** 엑셀을 거치며 앞 0 이 빠진 코드(505 → 0505)도 받는다. */
     static String code(String raw) {
         String s = raw.trim();
@@ -158,11 +174,11 @@ public class ProductCsvRowService {
         return s;
     }
 
-    static boolean parseBoolean(String raw) {
+    static boolean parseBoolean(String raw, String column) {
         return switch (raw.trim().toLowerCase(Locale.ROOT)) {
             case "", "false", "0", "n", "no", "f" -> false;
             case "true", "1", "y", "yes", "t" -> true;
-            default -> throw new CustomException(ErrorCode.BAD_REQUEST, "is_discontinued 값을 읽을 수 없습니다: " + raw);
+            default -> throw new CustomException(ErrorCode.BAD_REQUEST, column + " 값을 읽을 수 없습니다: " + raw);
         };
     }
 

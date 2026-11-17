@@ -81,14 +81,14 @@ public class RankingService {
     // ── GET /rankings ─────────────────────────────────────────────────────────────
 
     @Transactional(readOnly = true)
-    public RankingResponse ranking(String code, String goalParam, Integer kcalBand, String sortParam, Filters filters,
+    public RankingResponse ranking(String code, String goalParam, String sortParam, Filters filters,
                                    int page, int size, Actor actor) {
         if (page < 0 || size < 1 || size > MAX_PAGE_SIZE) {
             throw new CustomException(ErrorCode.INVALID_QUERY_PARAM, "page는 0 이상, size는 1~" + MAX_PAGE_SIZE + "이어야 합니다.");
         }
         Category chip = openChip(code);
         GoalType goal = goal(goalParam);
-        EerBand band = kcalBandResolver.resolve(actor, kcalBand);
+        EerBand band = kcalBandResolver.resolve(actor);
         ListSort sort = ListSort.from(sortParam);
         Owner owner = ownerResolver.resolveOrNull(actor);
 
@@ -103,12 +103,12 @@ public class RankingService {
 
     /** 대분류 전체 — 열린 칩마다 필터에 맞는 상위 3개, 칩 탭 순서대로. 0개인 칩은 뺀다(열린 칩이 없으면 groups 빈 배열). */
     @Transactional(readOnly = true)
-    public OverviewResponse overview(String majorCode, String goalParam, Integer kcalBand, Filters filters, Actor actor) {
+    public OverviewResponse overview(String majorCode, String goalParam, Filters filters, Actor actor) {
         Tree tree = tree();
         Category major = tree.majors().stream().filter(m -> m.getCode().equals(majorCode)).findFirst()
                 .orElseThrow(() -> new CustomException(ErrorCode.RESOURCE_NOT_FOUND, "없는 대분류입니다."));
         GoalType goal = goal(goalParam);
-        EerBand band = kcalBandResolver.resolve(actor, kcalBand);
+        EerBand band = kcalBandResolver.resolve(actor);
         Owner owner = ownerResolver.resolveOrNull(actor);
 
         List<Group> groups = new ArrayList<>();

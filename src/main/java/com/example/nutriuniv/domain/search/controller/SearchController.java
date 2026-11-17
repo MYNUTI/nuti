@@ -2,8 +2,10 @@ package com.example.nutriuniv.domain.search.controller;
 
 import com.example.nutriuniv.common.response.CommonResponse;
 import com.example.nutriuniv.common.security.Actor;
+import com.example.nutriuniv.domain.search.dto.PopularKeywordResponse;
 import com.example.nutriuniv.domain.search.dto.SearchResponse;
 import com.example.nutriuniv.domain.search.dto.SearchSuggestionResponse;
+import com.example.nutriuniv.domain.search.service.PopularKeywordService;
 import com.example.nutriuniv.domain.search.service.ProductSearchService;
 import com.example.nutriuniv.domain.search.service.SearchSuggestionService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -22,6 +24,7 @@ public class SearchController {
 
     private final ProductSearchService productSearchService;
     private final SearchSuggestionService searchSuggestionService;
+    private final PopularKeywordService popularKeywordService;
 
     // GET /search
     @Operation(summary = "이름 검색 (v3 SRCH_001)",
@@ -29,17 +32,16 @@ public class SearchController {
                     "sort: SCORE(기본, 점수 높은 순 → 이름순, 점수 없음 맨 뒤) · POPULAR · CALORIES_LOW · PROTEIN_HIGH · SUGAR_LOW(100g·100mL당, 값 없음 맨 뒤). " +
                     "검색어가 제품 이름 전체와 같으면 pinned(첫 페이지 맨 위 한 칸), 중분류 이름과 같으면 category. " +
                     "카드는 두 목표 점수 · 등급과 goal 기준 태그 2개(영양소 정렬이면 sortValue). 단종 · 생산 중단도 배지로 포함. " +
-                    "goal 은 저장하지 않습니다(없으면 WEIGHT_LOSS). kcalBand 는 감량 점수 구간. 0건이면 didYouMean · sameCategoryTop. page 0부터, size 기본 20.")
+                    "goal 은 저장하지 않습니다(없으면 WEIGHT_LOSS). 0건이면 didYouMean · sameCategoryTop. page 0부터, size 기본 20.")
     @GetMapping("/search")
     public ResponseEntity<CommonResponse<SearchResponse>> search(
             Actor actor,
             @Parameter(description = "검색어 (최대 30자)") @RequestParam(required = false) String q,
             @Parameter(description = "WEIGHT_LOSS | MUSCLE_GAIN (선택)") @RequestParam(required = false) String goal,
-            @Parameter(description = "하루 칼로리 구간 (1500·2000·2500·3000)") @RequestParam(required = false) Integer kcalBand,
             @Parameter(description = "SCORE | POPULAR | CALORIES_LOW | PROTEIN_HIGH | SUGAR_LOW") @RequestParam(required = false) String sort,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return ResponseEntity.ok(CommonResponse.success(productSearchService.search(q, goal, kcalBand, sort, page, size, actor)));
+        return ResponseEntity.ok(CommonResponse.success(productSearchService.search(q, goal, sort, page, size, actor)));
     }
 
     // GET /search/suggestions
@@ -53,7 +55,15 @@ public class SearchController {
         return ResponseEntity.ok(CommonResponse.success(searchSuggestionService.suggest(q, size)));
     }
 
-    // GET /search/keywords/popular — v3 에서 뺐다(검색 시작 화면은 기기에 저장한 최근 검색어만, 칩은 결정 대기)
+    // GET /search/keywords/popular
+    @Operation(summary = "인기 검색어 (v3 SRCH_009)",
+            description = "최근 7일 동안 그 말을 검색한 사람 수가 많은 순으로 최대 10개(3명 미만 · 결과 0건 검색은 빼요). " +
+                    "매시 정각에 다시 모으고, basedAt 은 그 기준 시각(아직 모으기 전이면 null · keywords 빈 배열). 급상승 검색어는 출시 때 숨겨서 없습니다.")
+    @GetMapping("/search/keywords/popular")
+    public ResponseEntity<CommonResponse<PopularKeywordResponse>> popularKeywords() {
+        return ResponseEntity.ok(CommonResponse.success(popularKeywordService.popular()));
+    }
+
     // GET /search/keywords/recent      — 보류 (현 화면 미노출). 재개 시 익명 ID 기준으로 완화 예정.
     // GET /search/keywords/recommended — 3차 보류 (추천 위치 미정). RecommendationService는 보존.
 }

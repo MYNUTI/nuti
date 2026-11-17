@@ -196,11 +196,53 @@ class ProductCsvRowServiceTest {
     }
 
     @Test
+    void 환자용_식품은_표식을_남기고_다이어트_칩은_뺀다() {
+        Category diet = category("01", "다이어트·단백질", null, 3L);
+        Category drinks = category("03", "음료", null, 4L);
+        Category drink = category("0306", "단백질 음료", drinks, 20L);
+        Category dietDrink = category("0107", "단백질 음료", diet, 21L);
+        for (Category c : List.of(diet, drinks, drink, dietDrink)) categories.put(c.getCode(), c);
+        when(productRepository.findByMasterId("FQR-1")).thenReturn(Optional.empty());
+        when(productRepository.save(any(Product.class))).thenAnswer(inv -> withId(inv.getArgument(0), 100L));
+        when(productNutrientRepository.findById(100L)).thenReturn(Optional.empty());
+        when(chipRepository.findByProductId(100L)).thenReturn(List.of());
+
+        Map<String, String> v = row("0306", "h", "false");
+        v.put("is_patient_food", "Y");
+        v.put("extra_categories", "0107|0210");
+        service.apply(item(v, ""), categories, new HashMap<>(), true);
+
+        ArgumentCaptor<Product> saved = ArgumentCaptor.forClass(Product.class);
+        verify(productRepository).save(saved.capture());
+        assertTrue(saved.getValue().isPatientFood());
+        ArgumentCaptor<ProductCategoryChip> chip = ArgumentCaptor.forClass(ProductCategoryChip.class);
+        verify(chipRepository, times(1)).save(chip.capture());
+        assertSame(porridge, chip.getValue().getCategory());      // 0107(다이어트·단백질)은 빠지고 0210만
+
+        Map<String, String> wrong = row("0107", "h", "false");
+        wrong.put("is_patient_food", "true");
+        assertThrows(CustomException.class, () -> service.apply(item(wrong, ""), categories, new HashMap<>(), false));
+    }
+
+    @Test
+    void 환자용_식품_열이_없으면_false() {
+        when(productRepository.findByMasterId("FQR-1")).thenReturn(Optional.empty());
+        when(productRepository.save(any(Product.class))).thenAnswer(inv -> withId(inv.getArgument(0), 100L));
+        when(productNutrientRepository.findById(100L)).thenReturn(Optional.empty());
+
+        service.apply(item(row("0505", "h", "false"), ""), categories, new HashMap<>(), false);
+
+        ArgumentCaptor<Product> saved = ArgumentCaptor.forClass(Product.class);
+        verify(productRepository).save(saved.capture());
+        assertFalse(saved.getValue().isPatientFood());
+    }
+
+    @Test
     void 값_읽기_규칙() {
         assertEquals("0505", ProductCsvRowService.code("505"));
         assertEquals("0505", ProductCsvRowService.code("0505"));
-        assertTrue(ProductCsvRowService.parseBoolean("TRUE"));
-        assertFalse(ProductCsvRowService.parseBoolean(""));
+        assertTrue(ProductCsvRowService.parseBoolean("TRUE", "is_discontinued"));
+        assertFalse(ProductCsvRowService.parseBoolean("", "is_discontinued"));
         assertNull(ProductCsvRowService.parseNutrient(""));
         assertNull(ProductCsvRowService.parseNutrient("-"));
         assertEquals(new BigDecimal("0.07"), ProductCsvRowService.parseNutrient("0.07"));
@@ -239,7 +281,7 @@ class ProductCsvRowServiceTest {
 
     private static Product existing(String hash, boolean corrected) {
         Product p = withId(Product.loaded("FQR-1", "옛 이름"), 100L);
-        p.applyLoad("옛 이름", null, null, null, null, null, null, true, hash);
+        p.applyLoad("옛 이름", null, null, null, null, null, null, true, false, hash);
         if (corrected) p.markManuallyCorrected();
         return p;
     }

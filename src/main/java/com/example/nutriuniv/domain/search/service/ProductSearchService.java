@@ -54,7 +54,7 @@ public class ProductSearchService {
     private final SearchSettingService settings;
 
     @Transactional(readOnly = true)
-    public SearchResponse search(String q, String goalParam, Integer kcalBand, String sortParam, int page, int size, Actor actor) {
+    public SearchResponse search(String q, String goalParam, String sortParam, int page, int size, Actor actor) {
         String raw = q == null ? "" : q.trim();
         if (raw.isEmpty()) {
             throw new CustomException(ErrorCode.BAD_REQUEST, "검색어(q)는 필수입니다.");
@@ -71,7 +71,7 @@ public class ProductSearchService {
         }
         String chosung = SearchNormalizer.isChosungQuery(raw) ? SearchNormalizer.chosung(raw) : null;
         GoalType goal = goalParam == null || goalParam.isBlank() ? GoalType.DEFAULT : GoalType.from(goalParam);
-        EerBand band = kcalBandResolver.resolve(actor, kcalBand);
+        EerBand band = kcalBandResolver.resolve(actor);
         int slot = EerBand.slot(goal, band);
         ListSort sort = ListSort.from(sortParam);
         Owner owner = ownerResolver.resolveOrNull(actor);

@@ -29,7 +29,7 @@ public class BodyProfileController {
     @Operation(summary = "몸 정보 저장 (내 몸에 맞추기)",
             description = "성별·출생 연도·키·체중·활동량 4단계·하루 필요 칼로리(기기가 계산). 서버가 가장 가까운 칼로리 구간(1,500·2,000·2,500·3,000, 정확히 중간이면 위)을 정해 저장합니다. " +
                     "범위: 출생 연도 1900~만 14세가 되는 해, 키 100~250cm, 체중 25~250kg, 하루 칼로리 500~6000 — 벗어나면 400 VALIDATION_FAILED. " +
-                    "저장 뒤 결과·검색·랭킹 등은 kcalBand 파라미터 대신 저장한 구간을 씁니다.")
+                    "저장 뒤 결과·검색·랭킹 등은 저장한 구간을 씁니다(요청의 칼로리 구간은 쓰지 않음).")
     @PutMapping
     public ResponseEntity<CommonResponse<BodyProfileResponse>> save(Actor actor, @RequestBody BodyProfileRequest request) {
         return ResponseEntity.ok(CommonResponse.success(bodyProfileService.save(actor, request)));

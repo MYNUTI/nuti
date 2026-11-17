@@ -24,7 +24,7 @@ import java.util.Optional;
 
 /**
  * 등급 조회 — 목표에 맞는 사전계산 슬롯을 꺼낸다 (구 PnsLookupService 대체).
- * 열량구간을 넘기지 않으면 2000 슬롯. 결과 화면은 요청의 kcalBand 슬롯을 쓴다(CORE_008).
+ * 열량구간을 넘기지 않으면 2000 슬롯. 결과 화면은 KcalBandResolver 가 정한 슬롯을 쓴다(CORE_008).
  * 사전계산이 없는 제품(영양정보 부족·배치 전)은 Optional.empty / null — 호출부가 INSUFFICIENT 로 표시한다.
  */
 @Service
