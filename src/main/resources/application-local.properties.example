@@ -28,3 +28,8 @@ coupang.access-key=dummy
 coupang.secret-key=dummy
 
 app.frontend-url={frontend_uri}
+
+# 공공데이터 수집
+publicdata.foodsafety.key={your_foodsafety_key}
+publicdata.datagokr.service-key={your_datagokr_decoding_key}
+publicdata.datagokr.daily-limit=1000
