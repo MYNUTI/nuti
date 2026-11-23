@@ -196,6 +196,32 @@ class ProductCsvRowServiceTest {
     }
 
     @Test
+    void 칩만_반영은_지금_칩과_비교해_바뀐_것만_고친다() {
+        Product p = existing("h", false);
+        p.applyLoad("옛 이름", tteok, null, null, null, null, null, false, "h");
+        when(productRepository.findByMasterId("FQR-1")).thenReturn(Optional.of(p));
+        when(chipRepository.findByProductId(100L)).thenReturn(List.of());
+
+        assertTrue(service.applyChips("FQR-1", "0210", categories));
+        ArgumentCaptor<ProductCategoryChip> chip = ArgumentCaptor.forClass(ProductCategoryChip.class);
+        verify(chipRepository).save(chip.capture());
+        assertSame(porridge, chip.getValue().getCategory());
+
+        when(chipRepository.findByProductId(100L)).thenReturn(List.of(chip.getValue()));
+        assertFalse(service.applyChips("FQR-1", "0210", categories));   // 이미 같음
+        assertTrue(service.applyChips("FQR-1", "", categories));        // 칩 없음 → 지움
+        verify(chipRepository).delete(chip.getValue());
+    }
+
+    @Test
+    void 칩만_반영도_관리자가_고친_제품은_건드리지_않는다() {
+        when(productRepository.findByMasterId("FQR-1")).thenReturn(Optional.of(existing("h", true)));
+
+        assertFalse(service.applyChips("FQR-1", "0210", categories));
+        verifyNoInteractions(chipRepository);
+    }
+
+    @Test
     void 값_읽기_규칙() {
         assertEquals("0505", ProductCsvRowService.code("505"));
         assertEquals("0505", ProductCsvRowService.code("0505"));

@@ -82,6 +82,13 @@ public class ProductStaging {
     @Column(name = "is_discontinued", length = 5)
     private String isDiscontinued;
 
+    /**
+     * 같이 보이는 칩(중분류 코드) — hash 대상이 아니다. 파일에 열이 없으면 NULL(기존 칩을 건드리지 않음),
+     * 열은 있는데 칸이 비면 ""(칩 없음). 값은 정리해서 넣는다: 3자리 코드 앞 0 보충 · 소속 중분류 코드 뺌 · 중복 제거 · 정렬 · "|" 로 이음.
+     */
+    @Column(name = "extra_categories", columnDefinition = "text")
+    private String extraCategories;
+
     @Column(name = "content_hash", length = 64, nullable = false)
     private String contentHash;
 

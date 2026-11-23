@@ -26,6 +26,8 @@ import java.util.*;
  * <ol>
  *   <li>hash 가 다르거나 새로 생긴 행만 골라 ProductCsvRowService.apply 에 넘긴다 — master_id 조회 · 관리자가 고친 제품 보호 ·
  *       바코드 정규화 · 브랜드 · 분류 · 성분 · 분석 상태를 CSV 적재와 똑같이 처리하고, 제품마다 따로 커밋한다</li>
+ *   <li>파일에 같이 보이는 칩 열(extra_categories)이 있으면 칩도 반영한다 — hash 는 같고 칩만 바뀐 제품은 칩만 바꾸고 수정 건수에 넣는다.
+ *       열이 없는 파일이면 기존 칩을 그대로 둔다</li>
  *   <li>최신화가 비활성으로 돌렸던 제품이 원천에 다시 나타나면 살린다(관리자가 직접 비활성으로 돌린 제품은 그대로)</li>
  *   <li>원천에서 사라진 제품은 지우지 않고 is_active=false 로 돌리고 변경 이력(SYNC_DEACTIVATE)을 남긴다.
  *       <b>출처별로 관리한다</b> — 대기 테이블에 들어 있는 출처(source)의 제품만 대상이고, 다른 경로로 들어온 출처(올리브영 CSV 등)는 건드리지 않는다.
@@ -139,8 +141,8 @@ public class ProductSyncApplyService {
         int disappearedTotal = sources.stream().mapToInt(SourceDeactivation::disappearedCount).sum();
         boolean anySkipped = sources.stream().anyMatch(SourceDeactivation::skipped);
         loadService.finish(loadId, (int) staged, c.created, c.updated, unchanged, c.protectedRows, c.failed);
-        log.info("[SYNC] 반영 id={} — 대기 {} · 후보 {} · 새로 {} · 수정 {} · 보호 {} · 살림 {} · 비활성 {}/{} · 실패 {} · 출처별 {}",
-                loadId, staged, changed.size(), c.created, c.updated, c.protectedRows, c.reactivated,
+        log.info("[SYNC] 반영 id={} — 대기 {} · 후보 {} · 새로 {} · 수정 {}(칩만 {}) · 보호 {} · 살림 {} · 비활성 {}/{} · 실패 {} · 출처별 {}",
+                loadId, staged, changed.size(), c.created, c.updated, c.chipsOnly, c.protectedRows, c.reactivated,
                 c.deactivated, disappearedTotal, c.failed, sources);
 
         if (c.created + c.updated + c.reactivated + c.deactivated > 0) {
@@ -174,11 +176,18 @@ public class ProductSyncApplyService {
             String barcode = row.get("barcode");
             ProductCsvRowService.LoadItem item = new ProductCsvRowService.LoadItem(
                     0, ch.masterId(), row, new ArrayList<>(List.of(barcode == null ? "" : barcode)));
-            switch (rowService.apply(item, categoriesByCode, brandCache, false)) {
+            String chips = row.get(ProductStagingRepository.EXTRA_CATEGORIES);   // null = 파일에 칩 열 없음 → 기존 칩 그대로
+            boolean withChips = chips != null;
+            switch (rowService.apply(item, categoriesByCode, brandCache, withChips)) {
                 case CREATED -> c.created++;
                 case UPDATED -> c.updated++;
                 case PROTECTED -> c.protectedRows++;
-                case UNCHANGED -> { }   // 다시 나타났지만 값은 그대로인 경우
+                case UNCHANGED -> {   // hash 가 같음 — 다시 나타났거나 칩만 바뀐 경우
+                    if (withChips && rowService.applyChips(ch.masterId(), chips, categoriesByCode)) {
+                        c.updated++;
+                        c.chipsOnly++;
+                    }
+                }
             }
             if (ch.reactivate() && reactivate(ch.productId())) c.reactivated++;
         } catch (Exception e) {
@@ -236,6 +245,6 @@ public class ProductSyncApplyService {
     }
 
     private static final class Counts {
-        int created, updated, protectedRows, reactivated, deactivated, failed;
+        int created, updated, chipsOnly, protectedRows, reactivated, deactivated, failed;
     }
 }

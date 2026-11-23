@@ -92,6 +92,40 @@ class ProductSyncApplyServiceTest {
     }
 
     @Test
+    void 칩_열이_있는_행은_칩까지_반영하고_칩만_바뀌면_수정으로_센다() {
+        when(stagingRepository.count()).thenReturn(5L);
+        when(stagingRepository.findChanged()).thenReturn(List.of(new ChangedRow("A", 1L, false), new ChangedRow("B", 2L, false)));
+        Map<String, Map<String, String>> rows = rows("A", "B");
+        rows.get("A").put(ProductStagingRepository.EXTRA_CATEGORIES, "0210");
+        rows.get("B").put(ProductStagingRepository.EXTRA_CATEGORIES, "");
+        when(stagingRepository.findRows(anyList())).thenReturn(rows);
+        when(rowService.apply(any(), anyMap(), anyMap(), eq(true))).thenReturn(ProductCsvRowService.Outcome.UNCHANGED);
+        when(rowService.applyChips(eq("A"), eq("0210"), anyMap())).thenReturn(true);    // 칩만 바뀜
+        when(rowService.applyChips(eq("B"), eq(""), anyMap())).thenReturn(false);       // 이미 같음
+
+        SyncApplyResponse r = service.apply(false);
+
+        verify(rowService, times(2)).apply(any(), anyMap(), anyMap(), eq(true));
+        assertEquals(1, r.updatedCount());
+        assertEquals(4, r.unchangedCount());
+        verify(gradeBatchService).recomputeAsync(any());
+    }
+
+    @Test
+    void 칩_열이_없는_행은_칩을_건드리지_않는다() {
+        when(stagingRepository.count()).thenReturn(1L);
+        when(stagingRepository.findChanged()).thenReturn(List.of(new ChangedRow("A", 1L, false)));
+        when(stagingRepository.findRows(anyList())).thenReturn(rows("A"));
+        when(rowService.apply(any(), anyMap(), anyMap(), eq(false))).thenReturn(ProductCsvRowService.Outcome.UNCHANGED);
+
+        SyncApplyResponse r = service.apply(false);
+
+        verify(rowService).apply(any(), anyMap(), anyMap(), eq(false));
+        verify(rowService, never()).applyChips(any(), any(), anyMap());
+        assertEquals(0, r.updatedCount());
+    }
+
+    @Test
     void 최신화가_비활성으로_돌렸던_제품이_다시_나타나면_살린다() {
         when(stagingRepository.count()).thenReturn(1L);
         when(stagingRepository.findChanged()).thenReturn(List.of(new ChangedRow("A", 5L, true)));

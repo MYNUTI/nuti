@@ -21,13 +21,17 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class ProductStagingRepository {
 
-    /** product_staging 의 값 컬럼 — master_id + hash 대상 30칸 + content_hash. */
+    /** 같이 보이는 칩 열 — 적재 CSV 의 extra_categories 와 같은 이름. hash 대상이 아니다. */
+    public static final String EXTRA_CATEGORIES = "extra_categories";
+
+    /** product_staging 의 값 컬럼 — master_id + hash 대상 30칸 + content_hash + extra_categories. */
     public static final List<String> VALUE_COLUMNS;
     static {
         List<String> cols = new ArrayList<>();
         cols.add("master_id");
         cols.addAll(ContentHashCalculator.HASH_COLUMNS);
         cols.add("content_hash");
+        cols.add(EXTRA_CATEGORIES);
         VALUE_COLUMNS = List.copyOf(cols);
     }
 
@@ -37,7 +41,8 @@ public class ProductStagingRepository {
             + String.join(", ", Collections.nCopies(VALUE_COLUMNS.size() + 1, "?")) + ")";
 
     /**
-     * 반영할 행 — 실제 product 가 없거나, hash 가 다르거나, 최신화가 비활성으로 돌린 뒤 다시 나타난 행.
+     * 반영할 행 — 실제 product 가 없거나, hash 가 다르거나, 최신화가 비활성으로 돌린 뒤 다시 나타난 행,
+     * 또는 hash 는 같은데 같이 보이는 칩만 바뀐 행(칩 열이 있는 파일일 때만, 관리자가 고친 제품은 뺌).
      * 「최신화가 비활성으로 돌림」은 그 제품의 마지막 변경 이력이 SYNC_DEACTIVATE 인 것으로 가린다 —
      * 관리자가 직접 비활성으로 돌린 제품은 다시 살리지 않는다.
      */
@@ -52,6 +57,11 @@ public class ProductStagingRepository {
                OR  (p.is_active = FALSE AND (SELECT l.source FROM product_change_logs l
                                               WHERE l.product_id = p.id
                                               ORDER BY l.created_at DESC, l.id DESC LIMIT 1) = 'SYNC_DEACTIVATE')
+               OR  (p.is_active = TRUE AND p.manually_corrected = FALSE AND s.extra_categories IS NOT NULL
+                    AND ARRAY(SELECT x FROM unnest(string_to_array(s.extra_categories, '|')) AS x ORDER BY x)
+                        IS DISTINCT FROM
+                        ARRAY(SELECT c.code::text FROM product_category_chips pcc JOIN categories c ON c.id = pcc.category_id
+                              WHERE pcc.product_id = p.id ORDER BY 1))
             ORDER BY s.master_id
             """;
 
@@ -106,7 +116,10 @@ public class ProductStagingRepository {
         jdbcTemplate.execute("TRUNCATE TABLE product_staging");
     }
 
-    /** 행들을 넣는다. 각 맵은 VALUE_COLUMNS 를 키로 갖는다(없거나 빈 값은 NULL). 호출자가 트랜잭션을 연다. */
+    /**
+     * 행들을 넣는다. 각 맵은 VALUE_COLUMNS 를 키로 갖는다(없거나 빈 값은 NULL). 호출자가 트랜잭션을 연다.
+     * extra_categories 만 빈 값 ""(칩 없음)을 그대로 넣는다 — NULL(파일에 열 없음)과 뜻이 다르다.
+     */
     public void insertAll(List<Map<String, String>> rows, LocalDateTime computedAt) {
         Timestamp at = Timestamp.valueOf(computedAt);
         for (int from = 0; from < rows.size(); from += BATCH_SIZE) {
@@ -114,8 +127,9 @@ public class ProductStagingRepository {
             for (Map<String, String> row : rows.subList(from, Math.min(from + BATCH_SIZE, rows.size()))) {
                 Object[] args = new Object[VALUE_COLUMNS.size() + 1];
                 for (int i = 0; i < VALUE_COLUMNS.size(); i++) {
-                    String v = row.get(VALUE_COLUMNS.get(i));
-                    args[i] = v == null || v.isEmpty() ? null : v;
+                    String col = VALUE_COLUMNS.get(i);
+                    String v = row.get(col);
+                    args[i] = v == null || (v.isEmpty() && !EXTRA_CATEGORIES.equals(col)) ? null : v;
                 }
                 args[VALUE_COLUMNS.size()] = at;
                 batch.add(args);
