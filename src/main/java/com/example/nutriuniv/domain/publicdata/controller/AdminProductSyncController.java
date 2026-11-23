@@ -25,7 +25,7 @@ public class AdminProductSyncController {
     private final ProductSyncApplyService applyService;
 
     @Operation(summary = "복제 테이블 채우기 (34컬럼 CSV)",
-            description = "데이터 팀 product_master.csv 형식(UTF-8)으로 복제 테이블을 통째로 바꿉니다. 실제 product 는 건드리지 않습니다. " +
+            description = "파이프라인 product_master.csv 형식(UTF-8)으로 복제 테이블을 통째로 바꿉니다. 실제 product 는 건드리지 않습니다. " +
                     "content_hash 는 서버가 다시 계산해 넣고, 파일 값과 다르면 hashMismatchCount 와 예시를 돌려줍니다. " +
                     "같은 master_id 는 첫 행만 넣습니다. 적재·반영 중이면 409.")
     @PostMapping(value = "/staging", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)

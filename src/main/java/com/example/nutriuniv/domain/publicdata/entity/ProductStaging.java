@@ -10,7 +10,7 @@ import lombok.NoArgsConstructor;
 import java.time.LocalDateTime;
 
 /**
- * 제품 복제 테이블 (공공데이터 최신화) — 데이터 팀 34컬럼 최종 테이블과 같은 모양. 실제 product 에 반영하기 전 대기 장소.
+ * 제품 복제 테이블 (CSV 반영) — 파이프라인 34컬럼 파일과 같은 모양. 실제 product 에 반영하기 전 대기 장소.
  * <ul>
  *   <li>컬럼 이름 = 적재 CSV 헤더 이름. 한 행을 그대로 「컬럼명 → 값」 맵으로 읽어 ProductCsvRowService 에 넘긴다</li>
  *   <li>값은 전부 hash 에 쓰는 문자열 그대로 저장한다(숫자도 "446.67"). 다시 숫자로 바꿨다가 문자열로 만들면 표기가 달라질 수 있어서다</li>

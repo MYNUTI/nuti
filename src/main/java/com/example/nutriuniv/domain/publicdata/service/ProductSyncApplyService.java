@@ -22,7 +22,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.util.*;
 
 /**
- * 복제 테이블 → 실제 product 반영 (공공데이터 최신화 4단계).
+ * 복제 테이블 → 실제 product 반영 (CSV 반영).
  * <ol>
  *   <li>hash 가 다르거나 새로 생긴 행만 골라 ProductCsvRowService.apply 에 넘긴다 — master_id 조회 · 관리자가 고친 제품 보호 ·
  *       바코드 정규화 · 브랜드 · 분류 · 성분 · 분석 상태를 CSV 적재와 똑같이 처리하고, 제품마다 따로 커밋한다</li>

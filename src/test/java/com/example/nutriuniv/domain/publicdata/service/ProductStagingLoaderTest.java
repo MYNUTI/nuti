@@ -7,19 +7,17 @@ import com.example.nutriuniv.domain.product.service.ProductLoadService;
 import com.example.nutriuniv.domain.publicdata.dto.StagingLoadResponse;
 import com.example.nutriuniv.domain.publicdata.repository.ProductStagingRepository;
 import com.example.nutriuniv.domain.product.util.ContentHashCalculator;
+import com.example.nutriuniv.domain.product.util.ProductMasterSample;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.transaction.PlatformTransactionManager;
 
-import java.io.InputStreamReader;
-import java.io.Reader;
 import java.io.StringReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -29,24 +27,21 @@ import static org.mockito.Mockito.*;
 /** 34컬럼 CSV → 복제 테이블 행 (파싱만, DB 없이). */
 class ProductStagingLoaderTest {
 
-    /** ContentHashCalculatorTest 와 같은 샘플 (데이터 팀 product_master.csv 앞 99행). */
-    private static final String SAMPLE = "/product/product_master_sample.csv";
-
     @Test
-    void 샘플_99행을_그대로_넣고_hash가_파일과_전부_같다() throws Exception {
-        ProductStagingLoader.Parsed p = ProductStagingLoader.parse(sample());
+    void 파이프라인_파일을_그대로_넣고_hash가_build_py와_같다() {
+        ProductStagingLoader.Parsed p = ProductStagingLoader.parse(read(ProductMasterSample.csv()));
 
-        assertEquals(99, p.rows().size());
+        assertEquals(1, p.rows().size());
         assertEquals(0, p.duplicateCount());
         assertEquals(0, p.missingIdCount());
         assertEquals(0, p.hashMismatchCount());
         assertTrue(p.hashMismatchSamples().isEmpty());
 
         Map<String, String> first = p.rows().get(0);
-        assertEquals("FQR-202410221000001859", first.get("master_id"));
+        assertEquals(ProductMasterSample.MASTER_ID, first.get("master_id"));
         assertEquals("08809665551047", first.get("barcode"));
         assertEquals("446.67", first.get("sodium_mg_per_100g"));       // 숫자는 문자열 그대로
-        assertEquals("f919c1b4b09bd620331ce4553f7594c97251a8ff7e1394c47b2a02146fd50f09", first.get("content_hash"));
+        assertEquals(ProductMasterSample.BUILD_PY_HASH, first.get("content_hash"));
         assertFalse(first.containsKey("created_at"));                    // 시각 칸은 넣지 않는다
     }
 
@@ -168,13 +163,6 @@ class ProductStagingLoaderTest {
         String[] cells = line.split(",", -1);
         cells[cols.indexOf("category")] = category;
         return String.join(",", cells);
-    }
-
-    private static List<CsvReader.Record> sample() throws Exception {
-        try (Reader r = new InputStreamReader(
-                Objects.requireNonNull(ProductStagingLoaderTest.class.getResourceAsStream(SAMPLE)), StandardCharsets.UTF_8)) {
-            return CsvReader.read(r);
-        }
     }
 
     private static List<CsvReader.Record> read(String csv) {

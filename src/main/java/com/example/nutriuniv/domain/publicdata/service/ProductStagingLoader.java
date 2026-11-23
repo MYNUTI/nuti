@@ -27,7 +27,7 @@ import java.time.LocalDateTime;
 import java.util.*;
 
 /**
- * 34컬럼 CSV(데이터 팀 product_master.csv 형식)로 복제 테이블을 통째로 채운다.
+ * 34컬럼 CSV(파이프라인 product_master.csv 형식)로 복제 테이블을 통째로 채운다.
  * 입력은 두 가지 — 관리자가 올린 파일(POST /admin/product-sync/staging), 파이프라인이 /data/csv 에 둔 파일(CSV 수신함).
  * <ul>
  *   <li>복제 테이블은 「지금 원천 전체」를 뜻한다 — 비우고 채우기를 한 트랜잭션으로(중간에 실패하면 이전 내용 그대로)</li>
