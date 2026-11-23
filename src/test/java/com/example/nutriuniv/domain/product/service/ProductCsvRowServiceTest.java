@@ -27,7 +27,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
-/** 적재 한 제품 (v3 DATA_000) — master_id 갱신 · 해시 같으면 건너뜀 · 수동 수정 보호 · 바코드 13자리 · 분류 코드 · 칩. */
+/** 적재 한 제품 (v3 DATA_000) — master_id 갱신 · 해시 같으면 건너뜀 · 수동 수정 보호 · 바코드 14자리 · 분류 코드 · 칩. */
 @ExtendWith(MockitoExtension.class)
 class ProductCsvRowServiceTest {
 
@@ -54,7 +54,7 @@ class ProductCsvRowServiceTest {
     }
 
     @Test
-    void 새_제품은_만들고_바코드를_13자리로_넣고_성분과_상태를_채운다() {
+    void 새_제품은_만들고_바코드를_14자리로_넣고_성분과_상태를_채운다() {
         when(productRepository.findByMasterId("FQR-1")).thenReturn(Optional.empty());
         when(productRepository.save(any(Product.class))).thenAnswer(inv -> withId(inv.getArgument(0), 100L));
         when(productNutrientRepository.findById(100L)).thenReturn(Optional.empty());
@@ -74,7 +74,7 @@ class ProductCsvRowServiceTest {
         assertTrue(p.isDiscontinued());
         assertEquals("hash-1", p.getContentHash());
         assertEquals(ProductStatus.ANALYZED, p.getStatus());
-        verify(barcodeService).replace(p, List.of("8809665551047"));   // 14자리 → 앞 0 뗌
+        verify(barcodeService).replace(p, List.of("08809665551047"));   // 14자리 그대로
 
         ArgumentCaptor<ProductNutrient> n = ArgumentCaptor.forClass(ProductNutrient.class);
         verify(productNutrientRepository).save(n.capture());
@@ -129,7 +129,7 @@ class ProductCsvRowServiceTest {
         ArgumentCaptor<Product> saved = ArgumentCaptor.forClass(Product.class);
         verify(productRepository).save(saved.capture());
         assertNull(saved.getValue().getCategory());
-        verify(barcodeService).replace(saved.getValue(), List.of("8809665551047"));   // 체크섬 오류·숫자 아님 제외
+        verify(barcodeService).replace(saved.getValue(), List.of("08809665551047"));   // 13자리 → 앞 0 채움. 체크섬 오류·숫자 아님 제외
     }
 
     @Test
@@ -193,6 +193,32 @@ class ProductCsvRowServiceTest {
         Map<String, String> v = row("0505", "h", "false");
         v.put("extra_categories", "0210|0201|0501");
         assertThrows(CustomException.class, () -> service.apply(item(v, ""), categories, new HashMap<>(), true));
+    }
+
+    @Test
+    void 칩만_반영은_지금_칩과_비교해_바뀐_것만_고친다() {
+        Product p = existing("h", false);
+        p.applyLoad("옛 이름", tteok, null, null, null, null, null, false, false, "h");
+        when(productRepository.findByMasterId("FQR-1")).thenReturn(Optional.of(p));
+        when(chipRepository.findByProductId(100L)).thenReturn(List.of());
+
+        assertTrue(service.applyChips("FQR-1", "0210", categories));
+        ArgumentCaptor<ProductCategoryChip> chip = ArgumentCaptor.forClass(ProductCategoryChip.class);
+        verify(chipRepository).save(chip.capture());
+        assertSame(porridge, chip.getValue().getCategory());
+
+        when(chipRepository.findByProductId(100L)).thenReturn(List.of(chip.getValue()));
+        assertFalse(service.applyChips("FQR-1", "0210", categories));   // 이미 같음
+        assertTrue(service.applyChips("FQR-1", "", categories));        // 칩 없음 → 지움
+        verify(chipRepository).delete(chip.getValue());
+    }
+
+    @Test
+    void 칩만_반영도_관리자가_고친_제품은_건드리지_않는다() {
+        when(productRepository.findByMasterId("FQR-1")).thenReturn(Optional.of(existing("h", true)));
+
+        assertFalse(service.applyChips("FQR-1", "0210", categories));
+        verifyNoInteractions(chipRepository);
     }
 
     @Test

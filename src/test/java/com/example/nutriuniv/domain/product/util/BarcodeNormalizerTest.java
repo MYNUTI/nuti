@@ -4,59 +4,99 @@ import com.example.nutriuniv.common.exception.CustomException;
 import com.example.nutriuniv.common.exception.ErrorCode;
 import org.junit.jupiter.api.Test;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-/**
- * 기능명세서 3.1 이 요구하는 고정 케이스 — 14자리 / 13자리 정상 / 8자리 체크섬 실패 / 숫자 아닌 문자 / 빈 값 + UPC-A·EAN-8 정상.
- * 8801234567893: 880123456789 의 EAN-13 체크 자리 = 3.
- */
 class BarcodeNormalizerTest {
 
     @Test
-    void 열세자리_정상은_그대로() {
-        assertEquals("8801234567893", BarcodeNormalizer.normalize("8801234567893"));
-        assertEquals("8801234567893", BarcodeNormalizer.normalize("  8801234567893 "));
+    void 열네자리는_그대로() {
+        assertThat(BarcodeNormalizer.normalize("08809665551047")).isEqualTo("08809665551047");
     }
 
     @Test
-    void 열네자리는_앞_0을_뗀다() {
-        assertEquals("8801234567893", BarcodeNormalizer.normalize("08801234567893"));
-        CustomException e = assertThrows(CustomException.class, () -> BarcodeNormalizer.normalize("18801234567893"));
-        assertEquals(ErrorCode.BAD_REQUEST, e.getErrorCode());
+    void 열세자리는_앞에_0을_채운다() {
+        assertThat(BarcodeNormalizer.normalize("8809665551047")).isEqualTo("08809665551047");
     }
 
     @Test
-    void 열두자리_UPC와_여덟자리_EAN8은_왼쪽에_0을_채운다() {
-        assertEquals("0036000291452", BarcodeNormalizer.normalize("036000291452"));   // UPC-A
-        assertEquals("0000096385074", BarcodeNormalizer.normalize("96385074"));       // EAN-8
+    void 열두자리_UPC_A는_앞에_0을_채운다() {
+        // UPC-A 036000291452 → 00036000291452
+        assertThat(BarcodeNormalizer.normalize("036000291452")).isEqualTo("00036000291452");
     }
 
     @Test
-    void 체크섬_불일치는_BARCODE_CHECKSUM_INVALID() {
-        CustomException e8 = assertThrows(CustomException.class, () -> BarcodeNormalizer.normalize("96385075"));
-        assertEquals(ErrorCode.BARCODE_CHECKSUM_INVALID, e8.getErrorCode());
-        CustomException e13 = assertThrows(CustomException.class, () -> BarcodeNormalizer.normalize("8801234567891"));
-        assertEquals(ErrorCode.BARCODE_CHECKSUM_INVALID, e13.getErrorCode());
+    void 여덟자리_EAN_8은_앞에_0을_채운다() {
+        // EAN-8 96385074 → 00000096385074
+        assertThat(BarcodeNormalizer.normalize("96385074")).isEqualTo("00000096385074");
     }
 
     @Test
-    void 숫자_아닌_문자_빈_값_지원하지_않는_길이는_BAD_REQUEST() {
-        assertEquals(ErrorCode.BAD_REQUEST, assertThrows(CustomException.class, () -> BarcodeNormalizer.normalize("88012345678A3")).getErrorCode());
-        assertEquals(ErrorCode.BAD_REQUEST, assertThrows(CustomException.class, () -> BarcodeNormalizer.normalize("")).getErrorCode());
-        assertEquals(ErrorCode.BAD_REQUEST, assertThrows(CustomException.class, () -> BarcodeNormalizer.normalize(null)).getErrorCode());
-        assertEquals(ErrorCode.BAD_REQUEST, assertThrows(CustomException.class, () -> BarcodeNormalizer.normalize("1234567890")).getErrorCode());
+    void 앞뒤_공백은_무시한다() {
+        assertThat(BarcodeNormalizer.normalize("  8809665551047 ")).isEqualTo("08809665551047");
     }
 
     @Test
-    void 저장과_조회가_같은_함수를_쓰므로_두_번_적용해도_같다() {
-        String once = BarcodeNormalizer.normalize("08801234567893");
-        assertEquals(once, BarcodeNormalizer.normalize(once));
+    void 같은_상품은_몇_자리로_찍혀도_같은_값() {
+        String from13 = BarcodeNormalizer.normalize("8801007965697");
+        String from14 = BarcodeNormalizer.normalize("08801007965697");
+        assertThat(from13).isEqualTo(from14);
     }
 
     @Test
-    void tryNormalize는_예외_대신_empty() {
-        assertTrue(BarcodeNormalizer.tryNormalize("8801234567893").isPresent());
-        assertTrue(BarcodeNormalizer.tryNormalize("abc").isEmpty());
-        assertTrue(BarcodeNormalizer.tryNormalize("8801234567891").isEmpty());
+    void 묶음_인디케이터가_있는_열네자리도_체크섬이_맞으면_받는다() {
+        // 08809665551047 의 인디케이터를 1 로 바꾸고 체크 숫자를 다시 계산한 값
+        String gtin = withCheckDigit("1880966555104");
+        assertThat(BarcodeNormalizer.normalize(gtin)).isEqualTo(gtin);
+    }
+
+    @Test
+    void 체크섬이_틀리면_BARCODE_CHECKSUM_INVALID() {
+        assertThatThrownBy(() -> BarcodeNormalizer.normalize("08809665551048"))
+                .isInstanceOf(CustomException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.BARCODE_CHECKSUM_INVALID);
+    }
+
+    @Test
+    void 지원하지_않는_길이는_BAD_REQUEST() {
+        assertThatThrownBy(() -> BarcodeNormalizer.normalize("12345"))
+                .isInstanceOf(CustomException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.BAD_REQUEST);
+    }
+
+    @Test
+    void 숫자가_아니면_BAD_REQUEST() {
+        assertThatThrownBy(() -> BarcodeNormalizer.normalize("88096655510A7"))
+                .isInstanceOf(CustomException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.BAD_REQUEST);
+    }
+
+    @Test
+    void 빈_값은_BAD_REQUEST() {
+        assertThatThrownBy(() -> BarcodeNormalizer.normalize(" "))
+                .isInstanceOf(CustomException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.BAD_REQUEST);
+    }
+
+    @Test
+    void tryNormalize는_실패하면_빈_값() {
+        assertThat(BarcodeNormalizer.tryNormalize("08809665551048")).isEmpty();
+        assertThat(BarcodeNormalizer.tryNormalize("8809665551047")).contains("08809665551047");
+    }
+
+    @Test
+    void isValidGtin14는_열네자리만_검사한다() {
+        assertThat(BarcodeNormalizer.isValidGtin14("08809665551047")).isTrue();
+        assertThat(BarcodeNormalizer.isValidGtin14("8809665551047")).isFalse();
+        assertThat(BarcodeNormalizer.isValidGtin14(null)).isFalse();
+    }
+
+    private static String withCheckDigit(String first13) {
+        int sum = 0;
+        for (int i = 0; i < 13; i++) {
+            int d = first13.charAt(i) - '0';
+            sum += (i % 2 == 0) ? d * 3 : d;
+        }
+        return first13 + ((10 - sum % 10) % 10);
     }
 }

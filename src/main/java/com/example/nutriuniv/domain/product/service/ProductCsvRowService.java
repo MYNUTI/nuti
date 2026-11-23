@@ -136,8 +136,22 @@ public class ProductCsvRowService {
         return List.copyOf(out);
     }
 
-    /** 같이 보이는 칩 — 최대 2개, 소속 중분류와 같은 코드는 뺀다. 환자용 식품이면 다이어트·단백질 칩도 뺀다. 없는 코드나 3개 이상이면 실패. */
-    private void replaceChips(Product product, Category primary, String raw, Map<String, Category> categoriesByCode, boolean patientFood) {
+    /**
+     * 같이 보이는 칩만 바꾼다 — CSV 반영에서 hash(성분·이름 등)는 그대로인데 칩 열만 바뀐 제품용.
+     * 관리자가 고친 제품·없는 제품은 건드리지 않는다. 바뀐 것이 있으면 true.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public boolean applyChips(String masterId, String raw, Map<String, Category> categoriesByCode) {
+        Product product = productRepository.findByMasterId(masterId).orElse(null);
+        if (product == null || product.isManuallyCorrected()) return false;
+        return replaceChips(product, product.getCategory(), raw == null ? "" : raw, categoriesByCode, product.isPatientFood());
+    }
+
+    /**
+     * 같이 보이는 칩 — 최대 2개, 소속 중분류와 같은 코드는 뺀다. 환자용 식품이면 다이어트·단백질 칩도 뺀다.
+     * 없는 코드나 3개 이상이면 실패. 바뀐 것이 있으면 true.
+     */
+    private boolean replaceChips(Product product, Category primary, String raw, Map<String, Category> categoriesByCode, boolean patientFood) {
         Set<Long> wanted = new LinkedHashSet<>();
         Map<Long, Category> byId = new HashMap<>();
         for (String token : raw.split(SPLIT)) {
@@ -157,10 +171,12 @@ public class ProductCsvRowService {
         if (wanted.size() > ProductCategoryChip.MAX_PER_PRODUCT) {
             throw new CustomException(ErrorCode.BAD_REQUEST, "같이 보이는 칩은 " + ProductCategoryChip.MAX_PER_PRODUCT + "개까지입니다: " + raw);
         }
+        boolean changed = false;
         for (ProductCategoryChip chip : chipRepository.findByProductId(product.getId())) {
-            if (!wanted.remove(chip.getCategory().getId())) chipRepository.delete(chip);
+            if (!wanted.remove(chip.getCategory().getId())) { chipRepository.delete(chip); changed = true; }
         }
-        for (Long id : wanted) chipRepository.save(ProductCategoryChip.of(product, byId.get(id)));
+        for (Long id : wanted) { chipRepository.save(ProductCategoryChip.of(product, byId.get(id))); changed = true; }
+        return changed;
     }
 
     private static boolean inDietMajor(Category c) {

@@ -16,10 +16,10 @@ public class ProductBarcodeService {
 
     private final ProductBarcodeRepository barcodeRepository;
 
-    /** 제품의 바코드를 정확히 이 목록(13자리 정규화 값)으로 맞춘다. 바뀌었으면 true. */
+    /** 제품의 바코드를 정확히 이 목록(14자리 정규화 값)으로 맞춘다. 바뀌었으면 true. */
     @Transactional
-    public boolean replace(Product product, Collection<String> normalized13) {
-        Set<String> wanted = new LinkedHashSet<>(normalized13);
+    public boolean replace(Product product, Collection<String> normalized14) {
+        Set<String> wanted = new LinkedHashSet<>(normalized14);
         boolean changed = false;
         for (ProductBarcode b : barcodeRepository.findByProductId(product.getId())) {
             if (!wanted.remove(b.getBarcode())) {
