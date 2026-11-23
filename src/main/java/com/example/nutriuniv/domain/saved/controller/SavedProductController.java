@@ -28,11 +28,10 @@ public class SavedProductController {
     public ResponseEntity<CommonResponse<SavedProductPageResponse>> getSaved(
             Actor actor,
             @Parameter(description = "WEIGHT_LOSS(기본) | MUSCLE_GAIN") @RequestParam(required = false) String goal,
-            @Parameter(description = "하루 칼로리 구간 (1500·2000·2500·3000)") @RequestParam(required = false) Integer kcalBand,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size) {
 
-        return ResponseEntity.ok(CommonResponse.success(savedProductService.getSaved(actor, goal, kcalBand, page, size)));
+        return ResponseEntity.ok(CommonResponse.success(savedProductService.getSaved(actor, goal, page, size)));
     }
 
     // POST /me/saved-products/{productId}

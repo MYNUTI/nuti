@@ -56,7 +56,7 @@ import java.util.Map;
 /**
  * 결과 화면 조립 (v3 RSLT_002 · CORE_004 · SCAN_010) — 제품 상세와 바코드 스캔이 같은 결과(ProductResultResponse)를 낸다.
  * <ul>
- *   <li>두 목표를 한 번에. 감량 점수는 요청의 칼로리 구간(kcalBand, 없거나 4구간 밖이면 2000)으로</li>
+ *   <li>두 목표를 한 번에. 감량 점수는 KcalBandResolver 의 칼로리 구간(동의 · 저장한 계정만, 그 밖은 2000)으로</li>
  *   <li>등급은 사전계산(product_grades)을 먼저 보고, 없으면(배치 전) 현행 기준으로 즉석 계산</li>
  *   <li>점수가 없으면(성분 7가지 중 빠짐) goals 는 빈 배열 + 성분값 보강 요청 자동 등록</li>
  *   <li>기준선 수치는 내보내지 않는다 — 단계(적은 편 · 보통 · 많은 편)와 1일 기준치 % 만</li>
@@ -65,6 +65,9 @@ import java.util.Map;
 @Slf4j
 @Service
 public class ProductResultService {
+
+    /** 마시는 환자용 균형영양식 결과에 넣는 한 줄 (DATA_005 · 다이어트용으로 오해하지 않게). */
+    static final String PATIENT_FOOD_NOTE = "환자용 식품이에요";
 
     private final ProductRepository productRepository;
     private final ProductNutrientRepository productNutrientRepository;
@@ -113,7 +116,7 @@ public class ProductResultService {
 
     // ── GET /products/barcode/{barcode} (SCAN_010) ────────────────────────────────
 
-    public ScanResultResponse scan(String rawBarcode, Integer kcalBand, Actor actor) {
+    public ScanResultResponse scan(String rawBarcode, Actor actor) {
         String barcode;
         try {
             barcode = BarcodeNormalizer.normalize(rawBarcode);                 // 형식 400, 체크섬 400
@@ -124,7 +127,7 @@ public class ProductResultService {
             }
             throw e;
         }
-        EerBand band = kcalBandResolver.resolve(actor, kcalBand);
+        EerBand band = kcalBandResolver.resolve(actor);
 
         ScanResultResponse res = txTemplate.execute(status -> {
             List<Product> found = productRepository.findByBarcode(barcode);
@@ -202,6 +205,7 @@ public class ProductResultService {
                 state.label(),
                 product.getCategory() == null ? null
                         : new ProductResultResponse.CategoryInfo(product.getCategory().getCode(), product.getCategory().getName()),
+                product.isPatientFood() ? PATIENT_FOOD_NOTE : null,
                 serving == null ? null : new ProductResultResponse.Serving(serving.text(), serving.amount(), serving.unit()),
                 basis,
                 band.kcal(),

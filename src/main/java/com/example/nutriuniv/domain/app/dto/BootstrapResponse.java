@@ -8,7 +8,7 @@ import lombok.Getter;
 /**
  * GET /app/bootstrap 출력 (기능명세서 1.1). 이 한 번으로 첫 화면을 정한다.
  * 첫 실행 분기는 기기가 한다(ONB_001). 동의 값은 로그인한 계정의 선택 동의 상태(기기 ID 사용자는 false).
- * kcalBand: 몸 정보에 동의하고 저장한 계정이면 그 구간, 아니면 null(기기 값 또는 2000 을 쓴다).
+ * kcalBand: 몸 정보에 동의하고 저장한 계정이면 그 구간, 아니면 null(서버는 2000 으로 계산한다).
  */
 @Getter
 @Builder

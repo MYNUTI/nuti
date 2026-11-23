@@ -60,6 +60,10 @@ public class Product {
     @Column(name = "is_discontinued", nullable = false, columnDefinition = "boolean default false")
     private boolean discontinued = false;
 
+    // 마시는 일반 환자용 균형영양식 (적재 파일 is_patient_food · DATA_005 11-11) — 결과에 「환자용 식품이에요」, 다이어트·단백질 칩에 넣지 않는다
+    @Column(name = "is_patient_food", nullable = false, columnDefinition = "boolean default false")
+    private boolean patientFood = false;
+
     // 적재 파일 content_hash — 이전 적재와 같으면 그 행은 건너뛴다
     @Column(name = "content_hash", length = 64)
     private String contentHash;
@@ -138,7 +142,7 @@ public class Product {
 
     /** 적재 파일 한 제품의 값을 그대로 덮는다 — 수동 수정 보호 제품은 호출하지 않는다. */
     public void applyLoad(String name, Category category, Brand brand, String reportNo, String source,
-                          String maker, String ingredients, boolean discontinued, String contentHash) {
+                          String maker, String ingredients, boolean discontinued, boolean patientFood, String contentHash) {
         this.name = name;
         this.category = category;
         this.brand = brand;
@@ -147,6 +151,7 @@ public class Product {
         this.maker = maker;
         this.ingredients = ingredients;
         this.discontinued = discontinued;
+        this.patientFood = patientFood;
         this.contentHash = contentHash;
     }
 

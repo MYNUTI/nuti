@@ -47,13 +47,13 @@ public class SavedProductService {
     // ── GET /me/saved-products ───────────────────────────────────────────────────────
 
     @Transactional(readOnly = true)
-    public SavedProductPageResponse getSaved(Actor actor, String goalParam, Integer kcalBand, int page, int size) {
+    public SavedProductPageResponse getSaved(Actor actor, String goalParam, int page, int size) {
         if (page < 1 || size < 1) {
             throw new CustomException(ErrorCode.INVALID_QUERY_PARAM, "page, size는 1 이상이어야 합니다.");
         }
         Owner owner = ownerResolver.resolve(actor);
         GoalType goal = goalParam == null || goalParam.isBlank() ? GoalType.DEFAULT : GoalType.from(goalParam);
-        EerBand band = kcalBandResolver.resolve(actor, kcalBand);
+        EerBand band = kcalBandResolver.resolve(actor);
 
         PageRequest pageable = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "createdAt"));
         Page<SavedProduct> saved = owner.isUser()

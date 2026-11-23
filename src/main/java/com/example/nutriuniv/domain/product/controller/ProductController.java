@@ -63,13 +63,12 @@ public class ProductController {
                     "MULTIPLE: 바코드에 제품이 둘 이상(candidates 에서 골라 GET /products/{id}). " +
                     "NO_SCORE: 성분 7가지 중 빠진 것이 있음(result.goals 빈 배열) + 성분값 보강 요청 자동 등록. " +
                     "NOT_FOUND: 어디에도 없음 + 새 제품 요청 자동 등록(같은 바코드 횟수 +1). " +
-                    "kcalBand(1500·2000·2500·3000, 없거나 그 밖이면 2000)는 감량 점수에만 씁니다.")
+                    "칼로리 구간은 몸 정보에 동의하고 저장한 계정만 저장한 구간, 그 밖은 2000(요청 값은 쓰지 않음).")
     @GetMapping("/products/barcode/{barcode}")
     public ResponseEntity<CommonResponse<ScanResultResponse>> scanBarcode(
             Actor actor,
-            @Parameter(description = "바코드 (숫자 8·12·13·14자리)") @PathVariable String barcode,
-            @Parameter(description = "하루 칼로리 구간 (1500·2000·2500·3000)") @RequestParam(required = false) Integer kcalBand) {
-        return ResponseEntity.ok(CommonResponse.success(productResultService.scan(barcode, kcalBand, actor)));
+            @Parameter(description = "바코드 (숫자 8·12·13·14자리)") @PathVariable String barcode) {
+        return ResponseEntity.ok(CommonResponse.success(productResultService.scan(barcode, actor)));
     }
 
     // GET /products/{productId}
@@ -77,16 +76,15 @@ public class ProductController {
             description = "두 목표(감량·근육 증가)의 점수·등급·한 줄 해석·좋은 점·아쉬운 점, 성분별 100g·1회 제공량 값과 1일 기준치 %·단계, " +
                     "제품 상태(점수 없음·분석 완료·생산 중단·재고 판매 중·단종), 쿠팡 구매 줄, 저장 여부를 한 번에 줍니다. 조회수 +1. " +
                     "점수가 없으면 goals 빈 배열 + 성분값 보강 요청 자동 등록(404 아님). 없는·비활성 제품 404 PRODUCT_NOT_FOUND. " +
-                    "kcalBand(1500·2000·2500·3000, 없거나 그 밖이면 2000)는 감량 점수에만 씁니다. 기준선 수치는 내려 주지 않습니다. " +
+                    "칼로리 구간은 몸 정보에 동의하고 저장한 계정만 저장한 구간, 그 밖은 2000(요청 값은 쓰지 않음). 기준선 수치는 내려 주지 않습니다. " +
                     "goals[].better: 같은 중분류의 더 맞는 제품 — TOP(A·B) / AVAILABLE(count개) / NONE. 소유자가 있으면 최근 본 제품에 기록합니다.")
     @GetMapping("/products/{productId}")
     public ResponseEntity<CommonResponse<ProductResultResponse>> getProduct(
             Actor actor,
             @Parameter(description = "상품 ID") @PathVariable Long productId,
-            @Parameter(description = "하루 칼로리 구간 (1500·2000·2500·3000)") @RequestParam(required = false) Integer kcalBand,
             @Parameter(description = "들어온 경로 (최근 본 제품 기록): SEARCH · RANKING · HOME · HISTORY · SAVED · ALTERNATIVE · COMPARE · OTHER")
             @RequestParam(required = false) String source) {
-        return ResponseEntity.ok(CommonResponse.success(productService.getProduct(productId, kcalBand, source, actor)));
+        return ResponseEntity.ok(CommonResponse.success(productService.getProduct(productId, source, actor)));
     }
 
     // GET /products/{productId}/alternatives
@@ -99,11 +97,10 @@ public class ProductController {
             Actor actor,
             @Parameter(description = "상품 ID") @PathVariable Long productId,
             @Parameter(description = "WEIGHT_LOSS(기본) | MUSCLE_GAIN") @RequestParam(required = false) String goal,
-            @Parameter(description = "하루 칼로리 구간 (1500·2000·2500·3000)") @RequestParam(required = false) Integer kcalBand,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
         return ResponseEntity.ok(CommonResponse.success(
-                productCompareService.alternatives(productId, goal, kcalBand, page, size, actor)));
+                productCompareService.alternatives(productId, goal, page, size, actor)));
     }
 
     // GET /products/compare
@@ -114,10 +111,9 @@ public class ProductController {
     public ResponseEntity<CommonResponse<CompareResponse>> compare(
             Actor actor,
             @Parameter(description = "제품 ID 2~4개, 쉼표 구분 (예 12,34)") @RequestParam String ids,
-            @Parameter(description = "WEIGHT_LOSS(기본) | MUSCLE_GAIN") @RequestParam(required = false) String goal,
-            @Parameter(description = "하루 칼로리 구간 (1500·2000·2500·3000)") @RequestParam(required = false) Integer kcalBand) {
+            @Parameter(description = "WEIGHT_LOSS(기본) | MUSCLE_GAIN") @RequestParam(required = false) String goal) {
         return ResponseEntity.ok(CommonResponse.success(
-                productCompareService.compare(ProductCompareService.parseIds(ids), goal, kcalBand, actor)));
+                productCompareService.compare(ProductCompareService.parseIds(ids), goal, actor)));
     }
 
     // GET /admin/products
