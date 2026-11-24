@@ -81,7 +81,7 @@ public class ProductSyncInboxService {
 
     // ── 자동 실행 ────────────────────────────────────────────────────────────
 
-    /** 매일 정해진 시각에 — 가장 새 파일이 아직 반영 전이면 처리를 시작한다. 없으면 건너뛴다. */
+    /** 주 1회 정해진 요일·시각에(ProductSyncInboxScheduler) — 가장 새 파일이 아직 반영 전이면 처리를 시작한다. 없으면 건너뛴다. */
     public void runScheduled() {
         if (!Files.isDirectory(dir)) {
             log.warn("[INBOX] 수신함 폴더가 없습니다 — {} (볼륨이 붙어 있는지 확인)", dir);

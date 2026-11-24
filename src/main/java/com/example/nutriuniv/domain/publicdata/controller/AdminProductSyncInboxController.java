@@ -21,7 +21,7 @@ public class AdminProductSyncInboxController {
     private final ProductSyncInboxService inboxService;
 
     @Operation(summary = "수신함 CSV 바로 반영",
-            description = "자동 실행(매일 08:00)을 기다리지 않고 반영합니다. fileName 을 비우면 가장 새 product_master_YYYYMMDD.csv 를 처리합니다. " +
+            description = "자동 실행(주 1회, 매주 월요일 08:00)을 기다리지 않고 반영합니다. fileName 을 비우면 가장 새 product_master_YYYYMMDD.csv 를 처리합니다. " +
                     "처리는 뒤에서 돌고 202 로 바로 돌아옵니다 — 결과는 GET /admin/product-sync/inbox 로 봅니다. " +
                     "이미 반영한 파일은 409(force=true 면 다시 처리). 다른 적재·반영이나 다른 CSV 처리 중이면 409.")
     @PostMapping("/run")
