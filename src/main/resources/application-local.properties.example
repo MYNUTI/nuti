@@ -6,7 +6,8 @@ spring.datasource.driver-class-name=org.postgresql.Driver
 # JWT
 jwt.secret={gbase64_encoded_secret_key}
 jwt.access-expiration-ms=600000
-jwt.refresh-expiration-ms=604800000
+# 리프레시 토큰 14일. 리프레시할 때마다 새로 발급되어 14일 안에 한 번이라도 쓰면 로그인이 이어진다
+jwt.refresh-expiration-ms=1209600000
 
 # GOOGLE OAuth
 google.client-id={your_google_client_id}
