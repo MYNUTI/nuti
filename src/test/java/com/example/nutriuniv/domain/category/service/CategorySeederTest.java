@@ -13,22 +13,22 @@ import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-/** 분류 시드 파일 (v3 DATA_005) — 대분류 15 · 중분류 90, 코드 형식. */
+/** 분류 시드 파일 (v3 DATA_005) — 보이는 대분류 15 · 중분류 103, 숨긴 기타(16) 4개, 코드 형식. */
 class CategorySeederTest {
 
     @Test
-    void 들어_있는_시드_파일은_보이는_대분류_15개_중분류_90개와_숨긴_기타_4개() throws Exception {
+    void 들어_있는_시드_파일은_보이는_대분류_15개_중분류_103개와_숨긴_기타_4개() throws Exception {
         try (Reader r = new InputStreamReader(new ClassPathResource(CategorySeeder.SEED_PATH).getInputStream(), StandardCharsets.UTF_8)) {
             List<CategorySeeder.SeedRow> rows = CategorySeeder.parse(CsvReader.read(r));
             List<CategorySeeder.SeedRow> shown = rows.stream().filter(x -> !x.hidden()).toList();
-            assertEquals(90, shown.size());
+            assertEquals(103, shown.size());
             assertEquals(15, shown.stream().map(CategorySeeder.SeedRow::majorCode).collect(Collectors.toSet()).size());
             assertEquals("다이어트·단백질", rows.get(0).majorName());
             assertEquals("0101", rows.get(0).minorCode());
 
             List<CategorySeeder.SeedRow> etc = rows.stream().filter(CategorySeeder.SeedRow::hidden).toList();
-            assertEquals(List.of("9901", "9902", "9903", "9904"), etc.stream().map(CategorySeeder.SeedRow::minorCode).toList());
-            assertTrue(etc.stream().allMatch(x -> x.majorCode().equals("99") && x.majorName().equals("기타")));
+            assertEquals(List.of("1601", "1602", "1603", "1604"), etc.stream().map(CategorySeeder.SeedRow::minorCode).toList());
+            assertTrue(etc.stream().allMatch(x -> x.majorCode().equals("16") && x.majorName().equals("기타")));
             // 술 · 영유아식 · 환자용 식품은 점수 제외, 분류 못 정함은 점수를 매긴다
             assertEquals(List.of(true, true, true, false), etc.stream().map(CategorySeeder.SeedRow::scoreExcluded).toList());
         }
