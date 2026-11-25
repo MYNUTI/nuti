@@ -11,8 +11,10 @@ import java.time.LocalDateTime;
 @Builder
 public class AdminCoupangSyncResponse {
     private String linkStatus;
+    private String matchType;       // 운영자 지정값(확인 결과) — 비어 있으면 상품명으로 자동 판정
     private String affiliateUrl;
     private Integer price;
+    private int missedRefreshes;
 
     @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
     private LocalDateTime lastSyncedAt;
@@ -20,8 +22,10 @@ public class AdminCoupangSyncResponse {
     public static AdminCoupangSyncResponse from(CoupangLink link) {
         return AdminCoupangSyncResponse.builder()
                 .linkStatus(link.getLinkStatus())
+                .matchType(link.getMatchType())
                 .affiliateUrl(link.getAffiliateUrl())
                 .price(link.getProductPrice())
+                .missedRefreshes(link.getMissedRefreshes())
                 .lastSyncedAt(link.getLastSyncedAt())
                 .build();
     }

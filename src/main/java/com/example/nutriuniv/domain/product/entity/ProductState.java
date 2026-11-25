@@ -38,16 +38,25 @@ public enum ProductState {
 
     public static ProductState of(boolean scoreExcluded, ProductStatus status, boolean discontinued, CoupangLink link) {
         return link == null
-                ? of(scoreExcluded, status, discontinued, null, null, null)
-                : of(scoreExcluded, status, discontinued, link.getLinkStatus(), link.getAffiliateUrl(), link.getLastSyncedAt());
+                ? of(scoreExcluded, status, discontinued, null, null, null, 0)
+                : of(scoreExcluded, status, discontinued, link.getLinkStatus(), link.getAffiliateUrl(), link.getLastSyncedAt(),
+                     link.getMissedRefreshes());
     }
 
-    /** 목록 조회용 — 엔티티 없이 열 값으로. */
+    /**
+     * 목록 조회용 — 엔티티 없이 열 값으로. 생산 중단 제품은 쿠팡 연결로 가른다(DATA_003):
+     * 지금 팔리는 연결이 있으면 재고 판매 중, 판매 상태를 확인 못 했거나(품절과 같게) 운영자 확인 대기면 생산 중단,
+     * 찾아봤는데 연결이 없으면 단종, 아직 안 찾아봤으면 생산 중단.
+     */
     public static ProductState of(boolean scoreExcluded, ProductStatus status, boolean discontinued,
-                                  String linkStatus, String affiliateUrl, java.time.LocalDateTime lastSyncedAt) {
+                                  String linkStatus, String affiliateUrl, java.time.LocalDateTime lastSyncedAt,
+                                  int missedRefreshes) {
         if (scoreExcluded) return SCORE_EXCLUDED;
         if (discontinued) {
-            if (hasPurchaseLink(linkStatus, affiliateUrl)) return STOCK_REMAINING;
+            if (hasPurchaseLink(linkStatus, affiliateUrl)) {
+                return missedRefreshes >= CoupangLink.SALE_UNKNOWN_AFTER ? PRODUCTION_STOPPED : STOCK_REMAINING;
+            }
+            if (CoupangLink.REVIEW.equals(linkStatus)) return PRODUCTION_STOPPED;
             if (lastSyncedAt != null) return DISCONTINUED;
             return PRODUCTION_STOPPED;
         }
@@ -59,6 +68,6 @@ public enum ProductState {
     }
 
     private static boolean hasPurchaseLink(String linkStatus, String affiliateUrl) {
-        return "LINKED".equals(linkStatus) && affiliateUrl != null && !affiliateUrl.isBlank();
+        return CoupangLink.LINKED.equals(linkStatus) && affiliateUrl != null && !affiliateUrl.isBlank();
     }
 }

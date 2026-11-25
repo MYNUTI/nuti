@@ -40,7 +40,7 @@ public enum ListSort {
         String tail = "pg.score DESC, p.name, p.id";
         return switch (this) {
             case SCORE -> "(pg.score IS NULL), " + tail;
-            case POPULAR -> "(pg.score IS NULL), (cl.link_status = 'LINKED' AND COALESCE(cl.affiliate_url, '') <> '') DESC, " + tail;
+            case POPULAR -> "(pg.score IS NULL), " + Seller.COUPANG_ON_SALE + " DESC, " + tail;
             default -> {
                 String col = "pn." + column(nutrient);
                 yield "(pg.score IS NULL OR " + col + " IS NULL), " + col + " " + direction + ", " + tail;
