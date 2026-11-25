@@ -4,7 +4,7 @@ import jakarta.persistence.*;
 import lombok.*;
 
 /**
- * 분류 목록 (v3 DATA_005) — 대분류 15개(depth 1, 코드 2자리) · 중분류 90개(depth 2, 코드 4자리) + 합산 칩,
+ * 분류 목록 (v3 DATA_005) — 대분류 15개 + 숨긴 기타(depth 1, 코드 2자리) · 중분류 103개 + 기타 4개(depth 2, 코드 4자리) + 합산 칩,
  * 그리고 숨긴 대분류 「기타」(99)와 그 중분류 4개(술 · 영유아식 · 환자용 식품 · 분류 못 정함).
  * 코드가 있는 행은 CategorySeeder 가 db/seed/categories.csv 로 맞춘다. 제품은 코드로 소속 중분류를 찾는다.
  */
