@@ -44,7 +44,7 @@ public class ProductSyncApplyService {
     /** 한 출처에서 사라진 제품이 그 출처 적재 제품의 이 비율을 넘으면 그 출처는 「현행 아님」을 건너뛴다. */
     static final double MAX_DEACTIVATION_RATIO = 0.10;
     static final String LOAD_NAME = "product-sync";
-    private static final int CHUNK = 500;
+    static final int CHUNK = 500;
     private static final int FAIL_LIMIT = 100;
 
     private final ProductStagingRepository stagingRepository;
@@ -71,10 +71,10 @@ public class ProductSyncApplyService {
     /** 반영하면 무엇이 바뀌는지만 센다. */
     public SyncPreviewResponse preview() {
         long staged = stagingRepository.count();
-        List<ChangedRow> changed = stagingRepository.findChanged();
-        long create = changed.stream().filter(r -> r.productId() == null).count();
-        long reactivate = changed.stream().filter(ChangedRow::reactivate).count();
-        long update = changed.size() - create - reactivate;
+        ProductStagingRepository.ChangedCounts changed = stagingRepository.countChanged();
+        long create = changed.create();
+        long reactivate = changed.reactivate();
+        long update = changed.total() - create - reactivate;
 
         Map<String, List<Long>> disappeared = groupBySource(stagingRepository.findDisappeared());
         Map<String, Long> activeLoaded = stagingRepository.countActiveLoadedBySource();
@@ -100,20 +100,25 @@ public class ProductSyncApplyService {
         Long loadId = loadService.start(LOAD_NAME);
         Counts c = new Counts();
         List<SyncApplyResponse.FailItem> fails = new ArrayList<>();
-        List<ChangedRow> changed;
+        int candidates = 0;
         List<SourceDeactivation> sources = new ArrayList<>();
         try {
-            changed = stagingRepository.findChanged();
             Map<String, Category> categoriesByCode = new HashMap<>();
             for (Category cat : categoryRepository.findAllByCodeIsNotNull()) categoriesByCode.put(cat.getCode(), cat);
             Map<String, Brand> brandCache = new HashMap<>();
 
-            for (int from = 0; from < changed.size(); from += CHUNK) {
-                List<ChangedRow> chunk = changed.subList(from, Math.min(from + CHUNK, changed.size()));
+            // 바뀐 행을 한 번에 다 들고 있지 않는다 — master_id 순서로 한 쪽씩. 반영한 행은 다음 쪽 조건에서 빠지고, 실패한 행은 커서가 지나간다
+            String after = "";
+            while (true) {
+                List<ChangedRow> chunk = stagingRepository.findChangedPage(after, CHUNK);
+                if (chunk.isEmpty()) break;
+                candidates += chunk.size();
                 Map<String, Map<String, String>> rows = stagingRepository.findRows(chunk.stream().map(ChangedRow::masterId).toList());
                 for (ChangedRow ch : chunk) {
                     applyOne(ch, rows.get(ch.masterId()), categoriesByCode, brandCache, c, fails);
                 }
+                if (chunk.size() < CHUNK) break;
+                after = chunk.get(chunk.size() - 1).masterId();
             }
 
             Map<String, List<Long>> disappeared = groupBySource(stagingRepository.findDisappeared());
@@ -143,14 +148,14 @@ public class ProductSyncApplyService {
         boolean anySkipped = sources.stream().anyMatch(SourceDeactivation::skipped);
         loadService.finish(loadId, (int) staged, c.created, c.updated, unchanged, c.protectedRows, c.failed);
         log.info("[SYNC] 반영 id={} — 대기 {} · 후보 {} · 새로 {} · 수정 {}(칩만 {}) · 보호 {} · 다시 현행 {} · 현행 아님 {}/{} · 실패 {} · 출처별 {}",
-                loadId, staged, changed.size(), c.created, c.updated, c.chipsOnly, c.protectedRows, c.reactivated,
+                loadId, staged, candidates, c.created, c.updated, c.chipsOnly, c.protectedRows, c.reactivated,
                 c.deactivated, disappearedTotal, c.failed, sources);
 
         if (c.created + c.updated + c.reactivated + c.deactivated > 0) {
             gradeBatchService.recomputeAsync(LOAD_NAME);
         }
 
-        return new SyncApplyResponse(loadId, staged, changed.size(), c.created, c.updated, unchanged, c.protectedRows,
+        return new SyncApplyResponse(loadId, staged, candidates, c.created, c.updated, unchanged, c.protectedRows,
                 c.reactivated, c.deactivated, disappearedTotal, anySkipped, sources, c.failed, fails);
     }
 

@@ -4,10 +4,12 @@ import java.io.IOException;
 import java.io.Reader;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Consumer;
 
 /**
  * RFC 4180 CSV 읽기 — 큰따옴표 칸 안의 쉼표·줄바꿈·"" 를 처리한다(원재료명 칸에 쉼표가 많다).
  * 맨 앞 BOM 은 버린다(엑셀이 UTF-8 로 저장하면 붙인다). 빈 줄은 건너뛴다. 순수 함수 — CsvReaderTest 로 고정.
+ * 큰 파일(적재 원천 수십만 행)은 {@link #forEach} 로 한 레코드씩 받는다 — 파일 전체를 메모리에 올리지 않는다.
  */
 public final class CsvReader {
 
@@ -22,6 +24,12 @@ public final class CsvReader {
 
     public static List<Record> read(Reader in) throws IOException {
         List<Record> records = new ArrayList<>();
+        forEach(in, records::add);
+        return records;
+    }
+
+    /** 레코드를 읽는 대로 하나씩 넘긴다. 읽은 레코드는 붙잡아 두지 않는다. */
+    public static void forEach(Reader in, Consumer<Record> sink) throws IOException {
         List<String> fields = new ArrayList<>();
         StringBuilder cell = new StringBuilder();
         boolean quoted = false;
@@ -57,7 +65,7 @@ public final class CsvReader {
                 if (c == '\r') {
                     int next = in.read();
                     if (next != '\n') {
-                        endRecord(records, fields, cell, recordLine);
+                        endRecord(sink, fields, cell, recordLine);
                         line++;
                         recordLine = line;
                         cellStarted = false;
@@ -65,7 +73,7 @@ public final class CsvReader {
                         continue;
                     }
                 }
-                endRecord(records, fields, cell, recordLine);
+                endRecord(sink, fields, cell, recordLine);
                 line++;
                 recordLine = line;
                 cellStarted = false;
@@ -75,15 +83,14 @@ public final class CsvReader {
             }
             c = in.read();
         }
-        endRecord(records, fields, cell, recordLine);
-        return records;
+        endRecord(sink, fields, cell, recordLine);
     }
 
-    private static void endRecord(List<Record> records, List<String> fields, StringBuilder cell, int recordLine) {
+    private static void endRecord(Consumer<Record> sink, List<String> fields, StringBuilder cell, int recordLine) {
         fields.add(cell.toString());
         cell.setLength(0);
         boolean blank = fields.stream().allMatch(String::isBlank);
-        if (!blank) records.add(new Record(recordLine, List.copyOf(fields)));
+        if (!blank) sink.accept(new Record(recordLine, List.copyOf(fields)));
         fields.clear();
     }
 }

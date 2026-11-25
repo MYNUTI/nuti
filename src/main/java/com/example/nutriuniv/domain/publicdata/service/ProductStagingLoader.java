@@ -25,12 +25,15 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.function.Consumer;
 
 /**
  * 34컬럼 CSV(파이프라인 product_master.csv 형식)로 복제 테이블을 통째로 채운다.
  * 입력은 두 가지 — 관리자가 올린 파일(POST /admin/product-sync/staging), 파이프라인이 /data/csv 에 둔 파일(CSV 수신함).
  * <ul>
  *   <li>복제 테이블은 「지금 원천 전체」를 뜻한다 — 비우고 채우기를 한 트랜잭션으로(중간에 실패하면 이전 내용 그대로)</li>
+ *   <li>파일은 한 레코드씩 읽어 {@value #INSERT_BATCH}행마다 넣는다 — 파일 전체를 메모리에 올리지 않는다(서버 힙이 작다).
+ *       비우기 전에 한 번 훑어 인코딩 · 헤더만 확인한다(행은 붙잡지 않음)</li>
  *   <li>content_hash 는 파일 값이 아니라 ContentHashCalculator 로 다시 계산해 넣는다. 파일 값과 다르면 건수와 예시를 돌려준다(계산기 대조)</li>
  *   <li>같은 master_id 가 두 번 나오면 첫 행만 넣고 나머지는 건너뛴 건수로 센다(34컬럼은 제품당 한 행)</li>
  *   <li>extra_categories(같이 보이는 칩) 열은 있으면 받는다(없어도 됨). hash 에는 넣지 않고 정리한 값만 따로 둔다</li>
@@ -49,6 +52,7 @@ public class ProductStagingLoader {
         REQUIRED_COLUMNS = List.copyOf(cols);
     }
     private static final int SAMPLE_LIMIT = 20;
+    static final int INSERT_BATCH = 1_000;
     private static final String SPLIT = "[|,;\\s]+";
 
     private final ProductStagingRepository stagingRepository;
@@ -95,41 +99,96 @@ public class ProductStagingLoader {
             throw new CustomException(ErrorCode.STATE_CONFLICT, "제품 적재·반영이 진행 중입니다. 끝난 뒤 다시 올려 주세요.");
         }
 
-        Parsed parsed = parse(read(source));
-        LocalDateTime now = LocalDateTime.now();
+        checkHeader(source);   // 1차: 인코딩 · 헤더만 — 실패하면 복제 테이블은 그대로
+        StagingWriter writer = new StagingWriter(LocalDateTime.now());
         txTemplate.executeWithoutResult(status -> {
             stagingRepository.truncate();
-            stagingRepository.insertAll(parsed.rows(), now);
+            stream(source, writer);
+            writer.flush();
         });
 
+        RowParser p = writer.parser;
         log.info("[SYNC] 복제 테이블 채움 — file={} 행 {} · 중복 건너뜀 {} · master_id 없음 {} · 파일 hash 와 다름 {}",
-                filename, parsed.rows().size(), parsed.duplicateCount(), parsed.missingIdCount(), parsed.hashMismatchCount());
-        return new StagingLoadResponse(parsed.rows().size(), parsed.duplicateCount(), parsed.missingIdCount(),
-                parsed.hashMismatchCount(), parsed.hashMismatchSamples());
+                filename, p.rows, p.duplicates, p.missingId, p.mismatches);
+        return new StagingLoadResponse(p.rows, p.duplicates, p.missingId, p.mismatches, List.copyOf(p.samples));
     }
 
-    /** CSV 레코드 → 복제 테이블 행. 순수 함수(테스트용으로 열어 둠). */
+    /** 비우기 전에 한 번 훑는다 — UTF-8 이 아니거나 필수 열이 없으면 여기서 멈춘다. 행은 붙잡지 않는다. */
+    private static void checkHeader(InputSource source) {
+        boolean[] header = {false};
+        stream(source, rec -> {
+            if (header[0]) return;
+            new RowParser(rec.fields());
+            header[0] = true;
+        });
+        if (!header[0]) throw new CustomException(ErrorCode.UNPROCESSABLE_ENTITY, "헤더 행이 없습니다.");
+    }
+
+    /** 한 레코드씩 행으로 바꿔 {@link #INSERT_BATCH}행마다 넣는다. 호출자가 트랜잭션을 연다. */
+    private final class StagingWriter implements Consumer<CsvReader.Record> {
+        private final LocalDateTime at;
+        private RowParser parser;
+        private List<Map<String, String>> batch = new ArrayList<>(INSERT_BATCH);
+
+        StagingWriter(LocalDateTime at) {
+            this.at = at;
+        }
+
+        @Override
+        public void accept(CsvReader.Record rec) {
+            if (parser == null) {
+                parser = new RowParser(rec.fields());
+                return;
+            }
+            Map<String, String> row = parser.next(rec);
+            if (row == null) return;
+            batch.add(row);
+            if (batch.size() >= INSERT_BATCH) flush();
+        }
+
+        void flush() {
+            if (batch.isEmpty()) return;
+            stagingRepository.insertAll(batch, at);
+            batch = new ArrayList<>(INSERT_BATCH);
+        }
+    }
+
+    /** CSV 레코드 → 복제 테이블 행. 순수 함수(테스트용으로 열어 둠). 서버는 {@link RowParser} 로 한 레코드씩 바꾼다. */
     static Parsed parse(List<CsvReader.Record> records) {
         if (records.isEmpty()) throw new CustomException(ErrorCode.UNPROCESSABLE_ENTITY, "헤더 행이 없습니다.");
-        Map<String, Integer> header = new HashMap<>();
-        List<String> names = records.get(0).fields();
-        for (int i = 0; i < names.size(); i++) header.putIfAbsent(names.get(i).trim().toLowerCase(Locale.ROOT), i);
-        List<String> missing = REQUIRED_COLUMNS.stream().filter(c -> !header.containsKey(c)).toList();
-        if (!missing.isEmpty()) {
-            throw new CustomException(ErrorCode.UNPROCESSABLE_ENTITY, "필수 열이 없습니다: " + String.join(", ", missing));
-        }
-        Integer fileHashCol = header.get("content_hash");
-        Integer chipsCol = header.get(ProductStagingRepository.EXTRA_CATEGORIES);
-
+        RowParser parser = new RowParser(records.get(0).fields());
         List<Map<String, String>> rows = new ArrayList<>(records.size());
-        Set<String> seen = new HashSet<>();
-        int duplicates = 0, missingId = 0, mismatches = 0;
-        List<String> samples = new ArrayList<>();
-
         for (CsvReader.Record rec : records.subList(1, records.size())) {
+            Map<String, String> row = parser.next(rec);
+            if (row != null) rows.add(row);
+        }
+        return new Parsed(rows, parser.duplicates, parser.missingId, parser.mismatches, List.copyOf(parser.samples));
+    }
+
+    /** 헤더를 확인하고 레코드를 복제 테이블 행으로 바꾼다 — 중복 · 빈 master_id · 파일 hash 와 다른 행을 센다. */
+    static final class RowParser {
+        private final Map<String, Integer> header = new HashMap<>();
+        private final Integer fileHashCol;
+        private final Integer chipsCol;
+        private final Set<String> seen = new HashSet<>();
+        int rows, duplicates, missingId, mismatches;
+        final List<String> samples = new ArrayList<>();
+
+        RowParser(List<String> names) {
+            for (int i = 0; i < names.size(); i++) header.putIfAbsent(names.get(i).trim().toLowerCase(Locale.ROOT), i);
+            List<String> missing = REQUIRED_COLUMNS.stream().filter(c -> !header.containsKey(c)).toList();
+            if (!missing.isEmpty()) {
+                throw new CustomException(ErrorCode.UNPROCESSABLE_ENTITY, "필수 열이 없습니다: " + String.join(", ", missing));
+            }
+            fileHashCol = header.get("content_hash");
+            chipsCol = header.get(ProductStagingRepository.EXTRA_CATEGORIES);
+        }
+
+        /** 넣을 행. 건너뛰는 행(빈 master_id · 이미 나온 master_id)이면 null. */
+        Map<String, String> next(CsvReader.Record rec) {
             String masterId = rec.get(header.get("master_id")).trim();
-            if (masterId.isEmpty()) { missingId++; continue; }
-            if (!seen.add(masterId)) { duplicates++; continue; }
+            if (masterId.isEmpty()) { missingId++; return null; }
+            if (!seen.add(masterId)) { duplicates++; return null; }
 
             Map<String, String> row = new HashMap<>();
             row.put("master_id", masterId);
@@ -137,7 +196,6 @@ public class ProductStagingLoader {
             String hash = ContentHashCalculator.hash(row);
             row.put("content_hash", hash);
             if (chipsCol != null) row.put(ProductStagingRepository.EXTRA_CATEGORIES, normalizeChips(rec.get(chipsCol), row.get("category")));
-
             if (fileHashCol != null) {
                 String fileHash = rec.get(fileHashCol).trim();
                 if (!fileHash.isEmpty() && !fileHash.equals(hash)) {
@@ -145,9 +203,9 @@ public class ProductStagingLoader {
                     if (samples.size() < SAMPLE_LIMIT) samples.add(masterId);
                 }
             }
-            rows.add(row);
+            rows++;
+            return row;
         }
-        return new Parsed(rows, duplicates, missingId, mismatches, samples);
     }
 
     /**
@@ -172,13 +230,13 @@ public class ProductStagingLoader {
         return s;
     }
 
-    /** UTF-8 로만 읽는다 — 엑셀 기본 저장(CP949)이면 한글이 깨지므로 400. */
-    private static List<CsvReader.Record> read(InputSource source) {
+    /** UTF-8 로만 읽는다 — 엑셀 기본 저장(CP949)이면 한글이 깨지므로 400. 레코드는 읽는 대로 넘긴다. */
+    private static void stream(InputSource source, Consumer<CsvReader.Record> sink) {
         var decoder = StandardCharsets.UTF_8.newDecoder()
                 .onMalformedInput(CodingErrorAction.REPORT)
                 .onUnmappableCharacter(CodingErrorAction.REPORT);
         try (Reader r = new BufferedReader(new InputStreamReader(source.open(), decoder))) {
-            return CsvReader.read(r);
+            CsvReader.forEach(r, sink);
         } catch (CharacterCodingException e) {
             throw new CustomException(ErrorCode.BAD_REQUEST, "UTF-8 로 저장한 CSV 만 받습니다.");
         } catch (IOException e) {

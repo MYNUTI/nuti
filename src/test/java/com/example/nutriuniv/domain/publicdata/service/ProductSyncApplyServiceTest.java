@@ -65,7 +65,7 @@ class ProductSyncApplyServiceTest {
     @Test
     void 후보만_적재_로직에_넘기고_건수를_센다() {
         when(stagingRepository.count()).thenReturn(10L);
-        when(stagingRepository.findChanged()).thenReturn(List.of(
+        when(stagingRepository.findChangedPage(eq(""), anyInt())).thenReturn(List.of(
                 new ChangedRow("A", null, false), new ChangedRow("B", 2L, false), new ChangedRow("C", 3L, false)));
         when(stagingRepository.findRows(anyList())).thenReturn(rows("A", "B", "C"));
         when(rowService.apply(argThat(i -> i != null && i.masterId().equals("A")), anyMap(), anyMap(), eq(false)))
@@ -94,7 +94,7 @@ class ProductSyncApplyServiceTest {
     @Test
     void 칩_열이_있는_행은_칩까지_반영하고_칩만_바뀌면_수정으로_센다() {
         when(stagingRepository.count()).thenReturn(5L);
-        when(stagingRepository.findChanged()).thenReturn(List.of(new ChangedRow("A", 1L, false), new ChangedRow("B", 2L, false)));
+        when(stagingRepository.findChangedPage(eq(""), anyInt())).thenReturn(List.of(new ChangedRow("A", 1L, false), new ChangedRow("B", 2L, false)));
         Map<String, Map<String, String>> rows = rows("A", "B");
         rows.get("A").put(ProductStagingRepository.EXTRA_CATEGORIES, "0210");
         rows.get("B").put(ProductStagingRepository.EXTRA_CATEGORIES, "");
@@ -114,7 +114,7 @@ class ProductSyncApplyServiceTest {
     @Test
     void 칩_열이_없는_행은_칩을_건드리지_않는다() {
         when(stagingRepository.count()).thenReturn(1L);
-        when(stagingRepository.findChanged()).thenReturn(List.of(new ChangedRow("A", 1L, false)));
+        when(stagingRepository.findChangedPage(eq(""), anyInt())).thenReturn(List.of(new ChangedRow("A", 1L, false)));
         when(stagingRepository.findRows(anyList())).thenReturn(rows("A"));
         when(rowService.apply(any(), anyMap(), anyMap(), eq(false))).thenReturn(ProductCsvRowService.Outcome.UNCHANGED);
 
@@ -128,7 +128,7 @@ class ProductSyncApplyServiceTest {
     @Test
     void 현행_아님이던_제품이_다시_나타나면_현행으로_되돌린다() {
         when(stagingRepository.count()).thenReturn(1L);
-        when(stagingRepository.findChanged()).thenReturn(List.of(new ChangedRow("A", 5L, true)));
+        when(stagingRepository.findChangedPage(eq(""), anyInt())).thenReturn(List.of(new ChangedRow("A", 5L, true)));
         when(stagingRepository.findRows(anyList())).thenReturn(rows("A"));
         when(rowService.apply(any(), anyMap(), anyMap(), eq(false))).thenReturn(ProductCsvRowService.Outcome.UNCHANGED);
         when(jdbcTemplate.update(contains("SET is_current = TRUE"), eq(5L))).thenReturn(1);
@@ -143,7 +143,6 @@ class ProductSyncApplyServiceTest {
     @Test
     void 사라진_제품은_끄지_않고_현행_아님으로_돌리고_이력을_남긴다() {
         when(stagingRepository.count()).thenReturn(100L);
-        when(stagingRepository.findChanged()).thenReturn(List.of());
         when(stagingRepository.findDisappeared()).thenReturn(gone("nutri_db", 7L, 8L));   // 100개 중 2개 = 2%
         when(jdbcTemplate.update(contains("SET is_current = FALSE"), anyLong())).thenReturn(1);
 
@@ -162,7 +161,6 @@ class ProductSyncApplyServiceTest {
     void 출처마다_10퍼센트를_따로_검사해_넘는_출처만_건너뛴다() {
         // 전체로 보면 22/1100 = 2% 라 안 걸리지만, foodqr 은 20/100 = 20% 라 그 출처만 건너뛴다
         when(stagingRepository.count()).thenReturn(1080L);
-        when(stagingRepository.findChanged()).thenReturn(List.of());
         when(stagingRepository.countActiveLoadedBySource()).thenReturn(Map.of("nutri_db", 1000L, "foodqr", 100L));
         List<DisappearedRow> rows = new ArrayList<>(gone("nutri_db", 1L, 2L));
         for (long id = 101; id <= 120; id++) rows.add(new DisappearedRow(id, "foodqr"));
@@ -184,7 +182,6 @@ class ProductSyncApplyServiceTest {
     @Test
     void 강제하면_10퍼센트를_넘어도_현행_아님으로_돌린다() {
         when(stagingRepository.count()).thenReturn(80L);
-        when(stagingRepository.findChanged()).thenReturn(List.of());
         when(stagingRepository.findDisappeared()).thenReturn(gone("nutri_db", ids(20)));           // 100개 중 20개 = 20%
         when(jdbcTemplate.update(contains("SET is_current = FALSE"), anyLong())).thenReturn(1);
 
@@ -197,7 +194,6 @@ class ProductSyncApplyServiceTest {
     @Test
     void 강제하지_않으면_10퍼센트를_넘는_출처는_건너뛰고_등급도_다시_계산하지_않는다() {
         when(stagingRepository.count()).thenReturn(80L);
-        when(stagingRepository.findChanged()).thenReturn(List.of());
         when(stagingRepository.findDisappeared()).thenReturn(gone("nutri_db", ids(20)));
 
         SyncApplyResponse r = service.apply(false);
@@ -212,7 +208,6 @@ class ProductSyncApplyServiceTest {
     void 대기_테이블이_맡지_않는_출처는_결과에_나오지_않는다() {
         // 저장소 쿼리가 대기 테이블에 있는 출처만 돌려준다 — 올리브영은 대상도 결과도 아니다
         when(stagingRepository.count()).thenReturn(100L);
-        when(stagingRepository.findChanged()).thenReturn(List.of());
         when(stagingRepository.countActiveLoadedBySource()).thenReturn(Map.of("nutri_db", 100L, "foodqr", 50L));
 
         SyncApplyResponse r = service.apply(false);
@@ -224,7 +219,7 @@ class ProductSyncApplyServiceTest {
     @Test
     void 미리_보기도_출처별로_센다() {
         when(stagingRepository.count()).thenReturn(1080L);
-        when(stagingRepository.findChanged()).thenReturn(List.of(new ChangedRow("A", null, false)));
+        when(stagingRepository.countChanged()).thenReturn(new ProductStagingRepository.ChangedCounts(1, 1, 0));
         when(stagingRepository.countActiveLoadedBySource()).thenReturn(Map.of("nutri_db", 1000L, "foodqr", 100L));
         List<DisappearedRow> rows = new ArrayList<>(gone("nutri_db", 1L));
         for (long id = 101; id <= 120; id++) rows.add(new DisappearedRow(id, "foodqr"));
@@ -245,7 +240,7 @@ class ProductSyncApplyServiceTest {
     @Test
     void 한_제품이_실패해도_나머지는_반영하고_실패로_센다() {
         when(stagingRepository.count()).thenReturn(2L);
-        when(stagingRepository.findChanged()).thenReturn(List.of(new ChangedRow("A", null, false), new ChangedRow("B", null, false)));
+        when(stagingRepository.findChangedPage(eq(""), anyInt())).thenReturn(List.of(new ChangedRow("A", null, false), new ChangedRow("B", null, false)));
         when(stagingRepository.findRows(anyList())).thenReturn(rows("A", "B"));
         when(rowService.apply(argThat(i -> i != null && i.masterId().equals("A")), anyMap(), anyMap(), eq(false)))
                 .thenThrow(new IllegalArgumentException("없는 중분류 코드입니다: 9999"));
@@ -258,6 +253,25 @@ class ProductSyncApplyServiceTest {
         assertEquals("A", r.failItems().get(0).masterId());
         assertEquals(1, r.createdCount());
         verify(loadService).finish(9L, 2, 1, 0, 0, 0, 1);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void 바뀐_행은_한_쪽씩_읽고_다음_쪽은_앞_쪽_마지막_master_id_뒤부터() {
+        when(stagingRepository.count()).thenReturn(1000L);
+        List<ChangedRow> first = new ArrayList<>();
+        for (int i = 0; i < ProductSyncApplyService.CHUNK; i++) first.add(new ChangedRow(String.format("A%04d", i), null, false));
+        String last = first.get(first.size() - 1).masterId();
+        when(stagingRepository.findChangedPage(eq(""), eq(ProductSyncApplyService.CHUNK))).thenReturn(first);
+        when(stagingRepository.findChangedPage(eq(last), eq(ProductSyncApplyService.CHUNK))).thenReturn(List.of(new ChangedRow("B", null, false)));
+        when(stagingRepository.findRows(anyList())).thenAnswer(inv -> rows(((List<String>) inv.getArgument(0)).toArray(String[]::new)));
+        when(rowService.apply(any(), anyMap(), anyMap(), eq(false))).thenReturn(ProductCsvRowService.Outcome.CREATED);
+
+        SyncApplyResponse r = service.apply(false);
+
+        assertEquals(ProductSyncApplyService.CHUNK + 1, r.candidateCount());
+        assertEquals(ProductSyncApplyService.CHUNK + 1, r.createdCount());
+        verify(stagingRepository, times(2)).findChangedPage(anyString(), anyInt());   // 둘째 쪽이 덜 차서 더 묻지 않는다
     }
 
     @Test

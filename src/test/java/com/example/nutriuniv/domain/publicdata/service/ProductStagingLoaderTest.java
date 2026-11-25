@@ -21,6 +21,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.*;
 
@@ -97,6 +98,40 @@ class ProductStagingLoaderTest {
         assertEquals(0, r.hashMismatchCount());
         verify(repo).truncate();
         verify(repo).insertAll(argThat(rows -> rows.size() == 2 && "가".equals(rows.get(0).get("product_name"))), any());
+    }
+
+    @Test
+    void 큰_파일은_한꺼번에_올리지_않고_나눠서_넣는다(@TempDir Path dir) throws Exception {
+        Path file = dir.resolve("product_master_20261125.csv");
+        int n = ProductStagingLoader.INSERT_BATCH * 2 + 1;
+        StringBuilder csv = new StringBuilder(String.join(",", header())).append("\n");
+        for (int i = 0; i < n; i++) csv.append(row("M" + i, "", "제품" + i, "")).append("\n");
+        csv.append(row("M0", "", "중복", "")).append("\n");
+        Files.writeString(file, csv.toString(), StandardCharsets.UTF_8);
+        ProductStagingRepository repo = mock(ProductStagingRepository.class);
+        List<Integer> sizes = new java.util.ArrayList<>();
+        doAnswer(inv -> sizes.add(((List<?>) inv.getArgument(0)).size())).when(repo).insertAll(anyList(), any());
+        ProductStagingLoader loader = new ProductStagingLoader(repo, mock(ProductLoadService.class), mock(PlatformTransactionManager.class));
+
+        StagingLoadResponse r = loader.load(file);
+
+        assertEquals(n, r.stagedCount());
+        assertEquals(1, r.duplicateCount());
+        assertEquals(List.of(ProductStagingLoader.INSERT_BATCH, ProductStagingLoader.INSERT_BATCH, 1), sizes);
+        verify(repo).truncate();
+    }
+
+    @Test
+    void 필수_열이_없는_디스크_파일은_422이고_복제_테이블은_그대로(@TempDir Path dir) throws Exception {
+        Path file = dir.resolve("product_master_20261125.csv");
+        Files.writeString(file, "master_id,product_name\nA,가\n", StandardCharsets.UTF_8);
+        ProductStagingRepository repo = mock(ProductStagingRepository.class);
+        ProductStagingLoader loader = new ProductStagingLoader(repo, mock(ProductLoadService.class), mock(PlatformTransactionManager.class));
+
+        CustomException e = assertThrows(CustomException.class, () -> loader.load(file));
+
+        assertEquals(ErrorCode.UNPROCESSABLE_ENTITY, e.getErrorCode());
+        verify(repo, never()).truncate();
     }
 
     @Test
