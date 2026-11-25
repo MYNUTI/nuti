@@ -11,6 +11,10 @@ import com.example.nutriuniv.domain.coupang.dto.CoupangProductData;
 import com.example.nutriuniv.domain.coupang.dto.CoupangSearchResponse;
 import com.example.nutriuniv.domain.coupang.entity.CoupangLink;
 import com.example.nutriuniv.domain.coupang.repository.CoupangLinkRepository;
+import com.example.nutriuniv.domain.coupang.service.CoupangCandidatePicker;
+import com.example.nutriuniv.domain.coupang.service.CoupangCandidatePicker.Decision;
+import com.example.nutriuniv.domain.coupang.service.CoupangCandidatePicker.Pick;
+import com.example.nutriuniv.domain.link.entity.PurchaseMatchType;
 import com.example.nutriuniv.domain.product.entity.Product;
 import com.example.nutriuniv.domain.product.repository.ProductRepository;
 import lombok.RequiredArgsConstructor;
@@ -21,22 +25,42 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
-import java.util.stream.Collectors;
 
+/**
+ * 쿠팡 연결 운영 (DATA_006 · 11-24).
+ * <ul>
+ *   <li>연결: 제품 이름으로 쿠팡을 검색해 이름 유사도로 고르고, 상품명의 1개 용량 · 개수로 같은 용량 → 다른 용량 순으로 잇는다.
+ *       한쪽이라도 용량이나 개수가 없으면 자동으로 잇지 않고 확인 대기(REVIEW)로 둔다 — {@link CoupangCandidatePicker}</li>
+ *   <li>확인: 운영자가 REVIEW 후보를 같은 용량 / 다른 용량 / 아님으로 정한다</li>
+ *   <li>가격 새로 받기: 연결한 상품을 다시 검색해 판매가 · 조회한 날을 새로 받는다. 쿠팡 응답에 품절 칸이 없어서,
+ *       검색은 됐는데 연결한 상품이 두 번 이어서 안 나오면 「판매 상태 확인 못 함」(가격 숨김 · 버튼은 쿠팡 검색 결과).
+ *       API 오류는 세지 않고 직전 값을 그대로 둔다</li>
+ * </ul>
+ * 일괄 작업은 쿠팡 호출 앞마다 3초 쉰다(분당 50회 한도 대비 · 1분 20회).
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class AdminCoupangService {
 
-    private static final Set<String> ALLOWED_STATUSES = Set.of("LINKED", "UNLINKED", "FAILED");
+    private static final Set<String> ALLOWED_STATUSES =
+            Set.of(CoupangLink.LINKED, CoupangLink.UNLINKED, CoupangLink.FAILED, CoupangLink.REVIEW);
+    private static final long THROTTLE_MS = 3000;
 
     private final CoupangLinkRepository coupangLinkRepository;
     private final ProductRepository productRepository;
     private final CoupangApiClient coupangApiClient;
+
+    /** 운영자 확인 결과. */
+    public enum ReviewDecision { SAME, OTHER, REJECT }
+
+    @FunctionalInterface
+    interface Searcher {
+        CoupangSearchResponse.SearchData search(String keyword) throws InterruptedException;
+    }
 
     // ── GET /admin/coupang/links ──────────────────────────────────────────────────
 
@@ -46,22 +70,17 @@ public class AdminCoupangService {
             throw new CustomException(ErrorCode.INVALID_QUERY_PARAM, "page는 0 이상, size는 1 이상이어야 합니다.");
         }
         if (status != null && !ALLOWED_STATUSES.contains(status.toUpperCase())) {
-            throw new CustomException(ErrorCode.INVALID_QUERY_PARAM, "허용되지 않는 status 값입니다. (LINKED / UNLINKED / FAILED)");
+            throw new CustomException(ErrorCode.INVALID_QUERY_PARAM, "허용되지 않는 status 값입니다. (LINKED / UNLINKED / FAILED / REVIEW)");
         }
 
         PageRequest pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "updatedAt"));
-
         Page<CoupangLink> linkPage = (status == null)
                 ? coupangLinkRepository.findAll(pageable)
                 : coupangLinkRepository.findByLinkStatus(status.toUpperCase(), pageable);
 
-        List<AdminCoupangLinkResponse> items = linkPage.getContent().stream()
-                .map(AdminCoupangLinkResponse::from)
-                .collect(Collectors.toList());
-
         return AdminCoupangLinkPageResponse.builder()
                 .total(linkPage.getTotalElements())
-                .items(items)
+                .items(linkPage.getContent().stream().map(AdminCoupangLinkResponse::from).toList())
                 .build();
     }
 
@@ -71,367 +90,190 @@ public class AdminCoupangService {
     public AdminCoupangSyncResponse syncCoupangLink(Long productId) {
         Product product = productRepository.findById(productId)
                 .orElseThrow(() -> new CustomException(ErrorCode.RESOURCE_NOT_FOUND, "존재하지 않는 상품입니다."));
-
         CoupangLink link = coupangLinkRepository.findByProduct(product)
                 .orElseGet(() -> coupangLinkRepository.save(CoupangLink.createDefault(product)));
-
         try {
-            CoupangSearchResponse.SearchData searchData = coupangApiClient.searchProduct(product.getName());
-
-            if (searchData == null) {
-                log.warn("[CoupangSync] 검색 결과 없음 - productId: {}, keyword: {}", productId, product.getName());
-                link.syncFailed();
-            } else {
-                CoupangProductData data = searchData.getProductData().stream()
-                        .filter(p -> p.getProductName() != null &&
-                                     p.getProductName().contains(product.getName()))
-                        .findFirst()
-                        .orElse(null);
-
-                if (data == null) {
-                    List<String> candidates = searchData.getProductData().stream()
-                            .map(CoupangProductData::getProductName)
-                            .collect(Collectors.toList());
-                    log.warn("[CoupangSync] 상품명 불일치 - productId: {}, keyword: {}, 쿠팡 반환 목록: {}",
-                            productId, product.getName(), candidates);
-                    link.syncFailed();
-                } else {
-                    link.syncSuccess(
-                            String.valueOf(data.getProductId()),
-                            data.getProductName(),
-                            data.getProductUrl(),
-                            searchData.getLandingUrl(),
-                            data.getProductImage(),
-                            data.getProductPrice(),
-                            data.getIsRocket(),
-                            data.getIsFreeShipping()
-                    );
-                }
-            }
+            match(link, product, coupangApiClient::searchProduct, "CoupangSync");
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         } catch (Exception e) {
             log.error("[CoupangSync] 쿠팡 API 연동 실패 - productId: {}, error: {}", productId, e.getMessage());
             link.syncFailed();
         }
-
         return AdminCoupangSyncResponse.from(link);
     }
 
-    // ── POST /admin/coupang/sync ──────────────────────────────────────────────────
+    // ── POST /admin/coupang/sync · /admin/coupang/retry ───────────────────────────
 
     public AdminCoupangBulkSyncResponse bulkSyncCoupangLinks() {
-        List<CoupangLink> targets = coupangLinkRepository.findAllByLinkStatus("UNLINKED");
-        log.info("[CoupangBulkSync] UNLINKED 매핑 대상 수: {}", targets.size());
+        List<CoupangLink> targets = coupangLinkRepository.findAllByLinkStatus(CoupangLink.UNLINKED);
+        log.info("[CoupangBulkSync] UNLINKED 연결 대상 수: {}", targets.size());
         return processBulk(targets, "CoupangBulkSync");
     }
 
-    // ── POST /admin/coupang/retry ─────────────────────────────────────────────────
-
     public AdminCoupangBulkSyncResponse retryCoupangLinks() {
-        List<CoupangLink> targets = coupangLinkRepository.findAllByLinkStatus("FAILED");
-        log.info("[CoupangRetry] ============================================================");
-        log.info("[CoupangRetry] FAILED 재시도 시작 — 대상: {}건, 호출 간격: 3초, 점수 임계값: {}",
-                targets.size(), SCORE_THRESHOLD);
-        log.info("[CoupangRetry] ============================================================");
-        return processBulkWithScoring(targets, "CoupangRetry");
+        List<CoupangLink> targets = coupangLinkRepository.findAllByLinkStatus(CoupangLink.FAILED);
+        log.info("[CoupangRetry] FAILED 재시도 시작 — 대상: {}건, 호출 간격: 3초, 점수 문턱: {}",
+                targets.size(), CoupangCandidatePicker.SCORE_THRESHOLD);
+        return processBulk(targets, "CoupangRetry");
     }
 
-    // ── 공통 매핑 처리 ─────────────────────────────────────────────────────────────
-
     private AdminCoupangBulkSyncResponse processBulk(List<CoupangLink> targets, String logTag) {
-        int successCount = 0;
-        int failCount    = 0;
+        int linked = 0, review = 0, failed = 0, idx = 0;
+        for (CoupangLink link : targets) {
+            idx++;
+            Product product = link.getProduct();
+            try {
+                Decision d = match(link, product, this::throttledSearch, logTag);
+                if (d == Decision.SAME || d == Decision.OTHER) linked++;
+                else if (d == Decision.REVIEW) review++;
+                else failed++;
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                log.warn("[{}] 사용자 중단 — 진행 {}/{}, 연결 {}, 확인 대기 {}, 실패 {}", logTag, idx - 1, targets.size(), linked, review, failed);
+                break;
+            } catch (Exception e) {
+                log.error("[{}] 예외 — productId={}, error={}", logTag, product.getId(), e.getMessage());
+                link.syncFailed();
+                failed++;
+            }
+            coupangLinkRepository.save(link);
+        }
+        log.info("[{}] 완료 — 전체: {}, 연결: {}, 확인 대기: {}, 실패: {}", logTag, targets.size(), linked, review, failed);
+        return AdminCoupangBulkSyncResponse.builder()
+                .totalCount(targets.size())
+                .successCount(linked)
+                .reviewCount(review)
+                .failCount(failed)
+                .build();
+    }
 
+    /**
+     * 키워드를 최대 3단계로 줄여 가며 찾는다(원본 → 마지막 낱말 뺌 → 브랜드). 이름 점수가 문턱을 넘는 후보가 나온 단계에서 고른다.
+     * 고른 결과대로 링크를 바꾸고 판정을 돌려준다.
+     */
+    private Decision match(CoupangLink link, Product product, Searcher searcher, String logTag) throws InterruptedException {
+        String name = product.getName();
+        for (String kw : CoupangCandidatePicker.keywordVariants(name)) {
+            CoupangSearchResponse.SearchData data = searcher.search(kw);
+            if (data == null || data.getProductData() == null || data.getProductData().isEmpty()) continue;
+            Pick pick = CoupangCandidatePicker.pick(data.getProductData(), name);
+            if (pick.decision() == Decision.NONE) {
+                log.info("[{}] productId={} keyword='{}' — 문턱 넘는 후보 없음(최고 {}점)",
+                        logTag, product.getId(), kw, CoupangCandidatePicker.bestScore(data.getProductData(), name));
+                continue;
+            }
+            CoupangProductData c = pick.data();
+            if (pick.decision() == Decision.REVIEW) {
+                link.syncReview(String.valueOf(c.getProductId()), c.getProductName(), c.getProductUrl(), data.getLandingUrl(),
+                        c.getProductImage(), c.getProductPrice(), c.getIsRocket(), c.getIsFreeShipping());
+            } else {
+                link.syncSuccess(String.valueOf(c.getProductId()), c.getProductName(), c.getProductUrl(), data.getLandingUrl(),
+                        c.getProductImage(), c.getProductPrice(), c.getIsRocket(), c.getIsFreeShipping());
+                product.updateImageUrl(c.getProductImage());
+            }
+            link.useKeyword(kw);
+            log.info("[{}] productId={} — {} (score={}, rule={}, keyword='{}', 쿠팡='{}')",
+                    logTag, product.getId(), pick.decision(), pick.score(), pick.rule(), kw, c.getProductName());
+            return pick.decision();
+        }
+        link.syncFailed();
+        log.warn("[{}] productId={} keyword='{}' — 모든 단계에서 못 찾음", logTag, product.getId(), name);
+        return Decision.NONE;
+    }
+
+    // ── POST /admin/coupang/links/{productId}/review ──────────────────────────────
+
+    /** 확인 대기 후보를 운영자가 정한다 — 같은 용량 · 다른 용량이면 연결, 아니면 찾지 못함(FAILED). */
+    @Transactional
+    public AdminCoupangSyncResponse review(Long productId, ReviewDecision decision) {
+        if (decision == null) throw new CustomException(ErrorCode.VALIDATION_FAILED, "decision 은 SAME / OTHER / REJECT 중 하나입니다.");
+        Product product = productRepository.findById(productId)
+                .orElseThrow(() -> new CustomException(ErrorCode.RESOURCE_NOT_FOUND, "존재하지 않는 상품입니다."));
+        CoupangLink link = coupangLinkRepository.findByProduct(product)
+                .filter(l -> CoupangLink.REVIEW.equals(l.getLinkStatus()))
+                .orElseThrow(() -> new CustomException(ErrorCode.STATE_CONFLICT, "확인 대기(REVIEW) 중인 쿠팡 연결이 없습니다."));
+        switch (decision) {
+            case SAME -> link.resolveReview(PurchaseMatchType.EXACT.name());
+            case OTHER -> link.resolveReview(PurchaseMatchType.OTHER_SIZE.name());
+            case REJECT -> link.resolveReview(null);
+        }
+        if (decision != ReviewDecision.REJECT) product.updateImageUrl(link.getCoupangImageUrl());
+        return AdminCoupangSyncResponse.from(link);
+    }
+
+    // ── POST /admin/coupang/refresh · /admin/coupang/refresh/{productId} ──────────
+
+    /** 연결된 상품 하나의 판매가를 새로 받는다. */
+    @Transactional
+    public AdminCoupangSyncResponse refresh(Long productId) {
+        Product product = productRepository.findById(productId)
+                .orElseThrow(() -> new CustomException(ErrorCode.RESOURCE_NOT_FOUND, "존재하지 않는 상품입니다."));
+        CoupangLink link = coupangLinkRepository.findByProduct(product)
+                .filter(l -> CoupangLink.LINKED.equals(l.getLinkStatus()))
+                .orElseThrow(() -> new CustomException(ErrorCode.STATE_CONFLICT, "연결(LINKED)된 쿠팡 상품이 없습니다."));
+        try {
+            refreshOne(link, coupangApiClient.searchOrEmpty(keyword(link)));
+        } catch (Exception e) {
+            log.warn("[CoupangRefresh] productId={} — 쿠팡 API 실패, 직전 값 유지: {}", productId, e.getMessage());
+        }
+        return AdminCoupangSyncResponse.from(link);
+    }
+
+    /** 연결된 상품 전부의 판매가를 새로 받는다(호출마다 3초). 성공 = 다시 검색됨, 실패 = 검색 안 됨 · API 오류. */
+    public AdminCoupangBulkSyncResponse refreshAll() {
+        List<CoupangLink> targets = coupangLinkRepository.findAllByLinkStatus(CoupangLink.LINKED);
+        int found = 0, missed = 0, errors = 0, unknown = 0;
         for (CoupangLink link : targets) {
             try {
-                Thread.sleep(3000); // 분당 30회 → 제한(50회) 대비 여유있게
+                Thread.sleep(THROTTLE_MS);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 break;
             }
-
             try {
-                Product product = link.getProduct();
-                CoupangSearchResponse.SearchData searchData = coupangApiClient.searchProduct(product.getName());
-
-                if (searchData == null) {
-                    log.warn("[{}] 검색 결과 없음 - productId: {}, keyword: {}", logTag, product.getId(), product.getName());
-                    link.syncFailed();
-                    failCount++;
-                } else {
-                    CoupangProductData data = searchData.getProductData().stream()
-                            .filter(p -> p.getProductName() != null &&
-                                         p.getProductName().contains(product.getName()))
-                            .findFirst()
-                            .orElse(null);
-
-                    if (data == null) {
-                        List<String> candidates = searchData.getProductData().stream()
-                                .map(CoupangProductData::getProductName)
-                                .collect(Collectors.toList());
-                        log.warn("[{}] 상품명 불일치 - productId: {}, keyword: {}, 쿠팡 반환 목록: {}",
-                                logTag, product.getId(), product.getName(), candidates);
-                        link.syncFailed();
-                        failCount++;
-                    } else {
-                        link.syncSuccess(
-                                String.valueOf(data.getProductId()),
-                                data.getProductName(),
-                                data.getProductUrl(),
-                                searchData.getLandingUrl(),
-                                data.getProductImage(),
-                                data.getProductPrice(),
-                                data.getIsRocket(),
-                                data.getIsFreeShipping()
-                        );
-                        product.updateImageUrl(data.getProductImage());
-                        successCount++;
-                        log.info("[{}] 매핑 성공 - productId: {}, name: {}", logTag, product.getId(), product.getName());
-                    }
-                }
+                if (refreshOne(link, coupangApiClient.searchOrEmpty(keyword(link)))) found++;
+                else missed++;
+                if (link.saleUnknown()) unknown++;
                 coupangLinkRepository.save(link);
-
             } catch (Exception e) {
-                log.error("[{}] 예외 발생 - productId: {}, error: {}", logTag, link.getProduct().getId(), e.getMessage());
-                link.syncFailed();
-                failCount++;
-                coupangLinkRepository.save(link);
+                errors++;
+                log.warn("[CoupangRefresh] linkId={} — 쿠팡 API 실패, 직전 값 유지: {}", link.getId(), e.getMessage());
             }
         }
-
-        log.info("[{}] 완료 - 성공: {}, 실패: {}", logTag, successCount, failCount);
+        log.info("[CoupangRefresh] 완료 — 전체 {}, 다시 검색됨 {}, 안 나옴 {}(판매 상태 확인 못 함 {}), API 실패 {}",
+                targets.size(), found, missed, unknown, errors);
         return AdminCoupangBulkSyncResponse.builder()
                 .totalCount(targets.size())
-                .successCount(successCount)
-                .failCount(failCount)
+                .successCount(found)
+                .failCount(missed + errors)
                 .build();
     }
 
-    // ── 점수 기반 매칭 처리 (retry 전용) ─────────────────────────────────────────
-    //
-    // 한 상품당 최대 3차까지 키워드를 단축해가며 검색한다.
-    //   1차: 원본 키워드          (예: "꼬기다 닭가슴살 갈릭크림맛")
-    //   2차: 마지막 토큰 제거     (예: "꼬기다 닭가슴살")   ※ 토큰 ≥3 일 때만
-    //   3차: 첫 토큰만 (브랜드)   (예: "꼬기다")           ※ 토큰 ≥2 일 때만
-    //
-    // 각 차수의 후보 10개에 대해 점수 규칙 적용. 점수는 항상 **원본 키워드** 기준.
-    //   100 - 정규화(공백/괄호/특수문자 제거, 소문자) 후 키워드 전체 포함
-    //    80 - 모든 토큰이 후보명에 포함됨
-    //    70 - 정규화 키워드의 2-gram 75% 이상이 후보에 포함 (들깨감자탕↔들깨순살감자탕 같은 합성어 케이스)
-    //    60 - 토큰 75% 이상 일치 (토큰 ≥ 2개일 때, 예: 4토큰 중 3개)
-    //    40 - 토큰 50% 이상 일치 (토큰 ≥ 2개일 때)
-    //     0 - 매칭 없음
-    //
-    // 어느 차수에서든 임계값(SCORE_THRESHOLD)을 넘으면 즉시 채택하고 다음 상품으로.
-    // 모든 차수 실패 시 FAILED.
-    //
-    // 모든 쿠팡 호출 직전에 3초 sleep (throttledSearch 헬퍼) → 분당 50회 제한 대비.
-
-    private static final int SCORE_THRESHOLD = 60;
-
-    private record ScoredCandidate(CoupangProductData data, int score, String rule) {}
-
-    private AdminCoupangBulkSyncResponse processBulkWithScoring(List<CoupangLink> targets, String logTag) {
-        int successCount = 0;
-        int failCount    = 0;
-        int total        = targets.size();
-        int idx          = 0;
-
-        outer:
-        for (CoupangLink link : targets) {
-            idx++;
-            Product product       = link.getProduct();
-            String originalKeyword = product.getName();
-            List<String> variants  = buildKeywordVariants(originalKeyword);
-
-            log.info("[{}] ({}/{}) productId={}, keyword='{}', 변형 {}단계",
-                    logTag, idx, total, product.getId(), originalKeyword, variants.size());
-
-            try {
-                boolean matched               = false;
-                ScoredCandidate bestSoFar     = new ScoredCandidate(null, 0, "none");
-                List<CoupangProductData> lastCandidates = List.of();
-
-                for (int pass = 0; pass < variants.size(); pass++) {
-                    String kw    = variants.get(pass);
-                    int passNum  = pass + 1;
-
-                    log.info("[{}]     {}차 시도 — keyword='{}'", logTag, passNum, kw);
-
-                    CoupangSearchResponse.SearchData searchData;
-                    try {
-                        searchData = throttledSearch(kw);
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        log.warn("[{}] !!! 사용자 중단 감지 — 처리 중단 (진행: {}/{}, 성공: {}, 실패: {})",
-                                logTag, idx - 1, total, successCount, failCount);
-                        break outer;
-                    }
-
-                    if (searchData == null
-                            || searchData.getProductData() == null
-                            || searchData.getProductData().isEmpty()) {
-                        log.warn("[{}]     {}차 — 검색 결과 0건", logTag, passNum);
-                        continue;
-                    }
-
-                    List<CoupangProductData> candidates = searchData.getProductData();
-                    lastCandidates = candidates;
-
-                    // 점수는 항상 원본 키워드 기준으로 계산
-                    ScoredCandidate best = pickBest(candidates, originalKeyword);
-                    log.info("[{}]     {}차 — 최고점={}/100 (rule={})",
-                            logTag, passNum, best.score(), best.rule());
-
-                    if (best.score() >= SCORE_THRESHOLD) {
-                        CoupangProductData data = best.data();
-                        link.syncSuccess(
-                                String.valueOf(data.getProductId()),
-                                data.getProductName(),
-                                data.getProductUrl(),
-                                searchData.getLandingUrl(),
-                                data.getProductImage(),
-                                data.getProductPrice(),
-                                data.getIsRocket(),
-                                data.getIsFreeShipping()
-                        );
-                        product.updateImageUrl(data.getProductImage());
-                        successCount++;
-                        matched = true;
-                        log.info("[{}]     OK 매칭 — score={}/100, rule={}, 사용키워드='{}', 채택='{}'",
-                                logTag, best.score(), best.rule(), kw, data.getProductName());
-                        break;
-                    }
-
-                    if (best.score() > bestSoFar.score()) {
-                        bestSoFar = best;
-                    }
-                }
-
-                if (!matched) {
-                    link.syncFailed();
-                    failCount++;
-                    log.warn("[{}] >>> 모든 차수 실패 — productId={}, keyword='{}', 누적최고점={}/100 (rule={})",
-                            logTag, product.getId(), originalKeyword, bestSoFar.score(), bestSoFar.rule());
-                    int shown = 0;
-                    for (CoupangProductData c : lastCandidates) {
-                        if (shown++ >= 3) break;
-                        log.warn("[{}]       후보 {}: '{}'", logTag, shown, c.getProductName());
-                    }
-                }
-                coupangLinkRepository.save(link);
-
-            } catch (Exception e) {
-                log.error("[{}] !!! 예외 발생 — productId={}, error={}",
-                        logTag, product.getId(), e.getMessage(), e);
-                link.syncFailed();
-                failCount++;
-                coupangLinkRepository.save(link);
-            }
+    /** 검색 결과에서 연결한 쿠팡 상품(같은 상품 번호)을 찾아 값을 새로 받는다. 없으면 연속으로 안 나온 횟수를 올린다. */
+    public static boolean refreshOne(CoupangLink link, CoupangSearchResponse.SearchData data) {
+        List<CoupangProductData> items = data.getProductData() == null ? List.of() : data.getProductData();
+        CoupangProductData same = items.stream()
+                .filter(c -> c != null && c.getProductId() != null
+                        && Objects.equals(String.valueOf(c.getProductId()), link.getCoupangProductId()))
+                .findFirst().orElse(null);
+        if (same == null) {
+            link.refreshMissed();
+            return false;
         }
-
-        log.info("[{}] ============================================================", logTag);
-        log.info("[{}] 완료 — 전체: {}, 성공: {}, 실패: {}",
-                logTag, total, successCount, failCount);
-        log.info("[{}] ============================================================", logTag);
-
-        return AdminCoupangBulkSyncResponse.builder()
-                .totalCount(total)
-                .successCount(successCount)
-                .failCount(failCount)
-                .build();
+        link.refreshFound(same.getProductName(), same.getProductUrl(), same.getProductImage(),
+                same.getProductPrice(), same.getIsRocket(), same.getIsFreeShipping());
+        return true;
     }
 
-    /** 모든 쿠팡 호출 직전에 3초 슬립 — 분당 50회 제한 대비. */
+    /** 그 상품을 찾은 검색어(처음엔 제품 이름). */
+    private static String keyword(CoupangLink link) {
+        String kw = link.getSearchKeyword();
+        return kw == null || kw.isBlank() ? link.getProduct().getName() : kw;
+    }
+
     private CoupangSearchResponse.SearchData throttledSearch(String keyword) throws InterruptedException {
-        Thread.sleep(3000);
+        Thread.sleep(THROTTLE_MS);
         return coupangApiClient.searchProduct(keyword);
-    }
-
-    /** 키워드 단축 변형: 원본 → (토큰≥3) 마지막 토큰 제거 → (토큰≥2) 브랜드(첫 토큰)만. */
-    private List<String> buildKeywordVariants(String original) {
-        List<String> tokens   = tokenize(original);
-        List<String> variants = new ArrayList<>();
-        variants.add(original);
-        if (tokens.size() >= 3) {
-            variants.add(String.join(" ", tokens.subList(0, tokens.size() - 1)));
-        }
-        if (tokens.size() >= 2) {
-            variants.add(tokens.get(0));
-        }
-        return variants;
-    }
-
-    private ScoredCandidate pickBest(List<CoupangProductData> candidates, String keyword) {
-        ScoredCandidate best = new ScoredCandidate(null, 0, "none");
-        for (CoupangProductData c : candidates) {
-            if (c.getProductName() == null) continue;
-            ScoredCandidate scored = scoreCandidate(c, keyword);
-            if (scored.score() > best.score()) {
-                best = scored;
-            }
-        }
-        return best;
-    }
-
-    private ScoredCandidate scoreCandidate(CoupangProductData data, String keyword) {
-        String normalizedProduct = normalize(data.getProductName());
-        String normalizedKeyword = normalize(keyword);
-
-        if (!normalizedKeyword.isEmpty() && normalizedProduct.contains(normalizedKeyword)) {
-            return new ScoredCandidate(data, 100, "normalized-contains");
-        }
-
-        List<String> tokens = tokenize(keyword);
-        if (tokens.isEmpty()) {
-            return new ScoredCandidate(data, 0, "no-match");
-        }
-
-        long matched = tokens.stream()
-                .filter(t -> normalizedProduct.contains(normalize(t)))
-                .count();
-
-        if (matched == tokens.size()) {
-            return new ScoredCandidate(data, 80, "all-tokens");
-        }
-
-        // 한국어 합성어/띄어쓰기 변형 케이스용 2-gram 부분 매칭.
-        // 정규화 키워드 길이 ≥ 4 일 때만 — 너무 짧으면 우연 매칭 위험.
-        if (normalizedKeyword.length() >= 4) {
-            double ngramRatio = bigramOverlapRatio(normalizedKeyword, normalizedProduct);
-            if (ngramRatio >= 0.75) {
-                return new ScoredCandidate(data, 70, "ngram-overlap");
-            }
-        }
-
-        if (tokens.size() >= 2) {
-            double ratio = (double) matched / tokens.size();
-            if (ratio >= 0.75) return new ScoredCandidate(data, 60, "most-tokens");
-            if (ratio >= 0.5)  return new ScoredCandidate(data, 40, "half-tokens");
-        }
-        return new ScoredCandidate(data, 0, "no-match");
-    }
-
-    /** 정규화된 keyword의 2-gram 슬라이딩 윈도우 중 text에 포함된 비율. */
-    private double bigramOverlapRatio(String keyword, String text) {
-        int len = keyword.length();
-        if (len < 2) return 0.0;
-        int total = len - 1;
-        int hit   = 0;
-        for (int i = 0; i < total; i++) {
-            if (text.contains(keyword.substring(i, i + 2))) hit++;
-        }
-        return (double) hit / total;
-    }
-
-    private String normalize(String s) {
-        if (s == null) return "";
-        return s.toLowerCase().replaceAll("[\\s\\[\\]()\\-_,/]", "");
-    }
-
-    private List<String> tokenize(String s) {
-        if (s == null || s.isBlank()) return List.of();
-        return Arrays.stream(s.trim().split("\\s+"))
-                .filter(t -> !t.isBlank())
-                .collect(Collectors.toList());
     }
 }

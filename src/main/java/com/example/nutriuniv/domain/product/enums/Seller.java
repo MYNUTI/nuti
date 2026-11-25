@@ -29,9 +29,13 @@ public enum Seller {
     /** 판매처 자료가 붙어 있는가. false 면 거르면 0개. */
     public boolean available() { return available; }
 
+    /** 쿠팡에서 지금 살 수 있는 연결 — 판매 상태를 확인 못 한 연결은 뺀다(품절과 같게 · DATA_006). 별칭 cl = coupang_links. */
+    public static final String COUPANG_ON_SALE = "(cl.link_status = 'LINKED' AND COALESCE(cl.affiliate_url, '') <> ''"
+            + " AND COALESCE(cl.missed_refreshes, 0) < " + com.example.nutriuniv.domain.coupang.entity.CoupangLink.SALE_UNKNOWN_AFTER + ")";
+
     /** WHERE 조각 (별칭 cl = coupang_links). */
     public String sql() {
-        return this == COUPANG ? "(cl.link_status = 'LINKED' AND COALESCE(cl.affiliate_url, '') <> '')" : "FALSE";
+        return this == COUPANG ? COUPANG_ON_SALE : "FALSE";
     }
 
     public static Seller from(String raw) {

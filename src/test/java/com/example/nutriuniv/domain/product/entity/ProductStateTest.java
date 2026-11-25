@@ -55,6 +55,22 @@ class ProductStateTest {
     }
 
     @Test
+    void 생산_중단_판매_상태를_확인_못_하면_재고_판매_중이_아니라_생산_중단() {
+        CoupangLink link = CoupangLink.createDefault(P);
+        link.syncSuccess("1", "쿠팡 이름", "https://link.coupang.com/a/x", null, null, 1000, true, true);
+        link.refreshMissed();
+        link.refreshMissed();
+        assertEquals(ProductState.PRODUCTION_STOPPED, ProductState.of(false, ProductStatus.ANALYZED, true, link));
+    }
+
+    @Test
+    void 생산_중단_운영자_확인_대기면_단종이_아니라_생산_중단() {
+        CoupangLink link = CoupangLink.createDefault(P);
+        link.syncReview("1", "쿠팡 이름", "https://link.coupang.com/a/x", null, null, 1000, true, true);
+        assertEquals(ProductState.PRODUCTION_STOPPED, ProductState.of(false, ProductStatus.ANALYZED, true, link));
+    }
+
+    @Test
     void 생산_중단_확인했는데_링크_없음은_단종_성분이_없어도_단종() {
         CoupangLink link = CoupangLink.createDefault(P);
         link.syncFailed();

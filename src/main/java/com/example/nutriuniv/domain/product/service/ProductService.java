@@ -11,6 +11,7 @@ import com.example.nutriuniv.domain.category.entity.Category;
 import com.example.nutriuniv.domain.category.repository.CategoryRepository;
 import com.example.nutriuniv.domain.saved.repository.SavedProductRepository;
 import com.example.nutriuniv.domain.coupang.entity.CoupangLink;
+import com.example.nutriuniv.domain.link.service.PurchaseLinkService;
 import com.example.nutriuniv.domain.coupang.repository.CoupangLinkRepository;
 import com.example.nutriuniv.domain.goal.entity.GoalType;
 import com.example.nutriuniv.domain.grade.calc.EerBand;
@@ -155,7 +156,7 @@ public class ProductService {
         Map<Long, String> gradeMap = gradeLookupService.lookupGrades(productIds, goal);
 
         Map<Long, Integer> priceMap = coupangLinkRepository.findByProductIdIn(productIds).stream()
-                .filter(l -> "LINKED".equals(l.getLinkStatus()))
+                .filter(l -> PurchaseLinkService.priceVisible(l.getProduct(), l))   // 같은 용량 · 판매 상태 확인된 것만 (DATA_006)
                 .collect(Collectors.toMap(l -> l.getProduct().getId(), CoupangLink::getProductPrice));
 
         List<ProductListResponse> items = page.getContent().stream()

@@ -70,6 +70,24 @@ public class CoupangApiClient {
 
     // ── 상품 검색 ─────────────────────────────────────────────────────────────────
 
+    /**
+     * 가격 새로 받기용 검색 — API 오류(응답 없음 · rCode 가 0 아님)는 예외로, 검색 0건은 빈 목록으로 돌려준다.
+     * 오류를 「검색되지 않음」으로 세면 쿠팡이 잠깐 안 될 때 판매 상태를 확인 못 함으로 잘못 넘어간다(DATA_006 — API 실패는 직전 값 유지).
+     */
+    public CoupangSearchResponse.SearchData searchOrEmpty(String keyword) {
+        String queryString = "keyword=" + URLEncoder.encode(keyword, StandardCharsets.UTF_8) + "&limit=10";
+        URI uri = URI.create(BASE_URL + SEARCH_PATH + "?" + queryString);
+        ResponseEntity<CoupangSearchResponse> response = restTemplate.exchange(
+                uri, HttpMethod.GET, new HttpEntity<>(createHeaders("GET", SEARCH_PATH, queryString)), CoupangSearchResponse.class);
+        CoupangSearchResponse body = response.getBody();
+        if (body == null || !"0".equals(body.getRCode())) {
+            throw new IllegalStateException("쿠팡 검색 API 오류 - rCode=" + (body == null ? null : body.getRCode()));
+        }
+        CoupangSearchResponse.SearchData data = body.getData() == null ? new CoupangSearchResponse.SearchData() : body.getData();
+        if (data.getProductData() == null) data.setProductData(java.util.List.of());
+        return data;
+    }
+
     public CoupangSearchResponse.SearchData searchProduct(String keyword) {
         String queryString = "keyword=" + URLEncoder.encode(keyword, StandardCharsets.UTF_8) + "&limit=10";
         URI uri = URI.create(BASE_URL + SEARCH_PATH + "?" + queryString);
