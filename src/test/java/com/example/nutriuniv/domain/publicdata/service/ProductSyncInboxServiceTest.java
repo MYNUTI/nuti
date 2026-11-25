@@ -49,7 +49,7 @@ class ProductSyncInboxServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new ProductSyncInboxService(dir.toString(), stagingLoader, applyService, loadService, historyRepository);
+        service = new ProductSyncInboxService(dir.toString(), true, stagingLoader, applyService, loadService, historyRepository);
         when(historyRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(loadService.isLoading()).thenReturn(false);
     }
@@ -108,7 +108,7 @@ class ProductSyncInboxServiceTest {
 
     @Test
     void 자동_실행은_폴더가_없으면_건너뛴다() {
-        ProductSyncInboxService noDir = new ProductSyncInboxService(dir.resolve("없음").toString(),
+        ProductSyncInboxService noDir = new ProductSyncInboxService(dir.resolve("없음").toString(), true,
                 stagingLoader, applyService, loadService, historyRepository);
 
         noDir.runScheduled();
@@ -157,6 +157,33 @@ class ProductSyncInboxServiceTest {
     }
 
     // ── 수동 실행 ────────────────────────────────────────────────────────────
+
+    @Test
+    void 서버가_켜지면_중단된_이력을_실패로_돌린_뒤_반영_전인_최신_파일을_처리한다() throws Exception {
+        Path newest = csv("product_master_20261125.csv");
+        when(stagingLoader.load(any(Path.class))).thenReturn(staged(100));
+        when(applyService.apply(false)).thenReturn(applied());
+
+        service.onStartup();
+
+        verify(applyService, timeout(3000)).apply(false);
+        verify(stagingLoader).load(newest);
+        var order = inOrder(historyRepository);   // 정리가 먼저 — 새 처리 이력을 실패로 돌리지 않게
+        order.verify(historyRepository).failInterrupted(any(), anyString());
+        order.verify(historyRepository, atLeastOnce()).save(any());
+    }
+
+    @Test
+    void 시작_때_반영을_끄면_중단된_이력만_정리한다() throws Exception {
+        csv("product_master_20261125.csv");
+        ProductSyncInboxService off = new ProductSyncInboxService(dir.toString(), false,
+                stagingLoader, applyService, loadService, historyRepository);
+
+        off.onStartup();
+
+        verify(historyRepository).failInterrupted(any(), anyString());
+        verifyNoInteractions(stagingLoader, applyService);
+    }
 
     @Test
     void 수동_실행은_이미_반영한_파일이면_409이고_force면_다시_한다() throws Exception {
@@ -313,7 +340,7 @@ class ProductSyncInboxServiceTest {
 
     @Test
     void 목록은_폴더가_없으면_빈_목록과_dirExists_false() {
-        ProductSyncInboxService noDir = new ProductSyncInboxService(dir.resolve("없음").toString(),
+        ProductSyncInboxService noDir = new ProductSyncInboxService(dir.resolve("없음").toString(), true,
                 stagingLoader, applyService, loadService, historyRepository);
 
         InboxListResponse r = noDir.list();
