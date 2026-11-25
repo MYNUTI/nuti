@@ -31,7 +31,7 @@ public class ProductStaging {
     @Column(length = 14)
     private String barcode;
 
-    @Column(name = "report_no", length = 20)
+    @Column(name = "report_no", length = 255)
     private String reportNo;
 
     @Column(length = 30)
