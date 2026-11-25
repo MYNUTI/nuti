@@ -140,7 +140,7 @@ public class ProductResultService {
             }
             if (active.size() > 1) {
                 List<ScanResultResponse.Candidate> candidates = active.stream().map(p -> {
-                    ProductState state = ProductState.of(ProductStatus.of(p.getProductNutrient()), p.isDiscontinued(), p.getCoupangLink());
+                    ProductState state = ProductState.of(p.isScoreExcluded(), ProductStatus.of(p.getProductNutrient()), p.isDiscontinued(), p.getCoupangLink());
                     return new ScanResultResponse.Candidate(p.getId(), p.getName(), brandLine(p), p.getImageUrl(), state.name(), state.label());
                 }).toList();
                 return new ScanResultResponse("MULTIPLE", barcode, null, candidates);
@@ -150,7 +150,9 @@ public class ProductResultService {
             ProductNutrient nutrient = productNutrientRepository.findById(product.getId()).orElse(null);
             CoupangLink link = coupangLinkRepository.findByProduct(product).orElse(null);
             ProductResultResponse r = build(product, nutrient, link, band, actor, AnalysisRequestChannel.AUTO_SCAN);
-            return new ScanResultResponse(r.goals().isEmpty() ? "NO_SCORE" : "RESULT", barcode, r, null);
+            // 점수 제외는 점수가 없어도 결과 화면으로 연다(「점수를 매기지 않는 종류예요」 + 성분표, 분석 요청으로 잇지 않음)
+            boolean noScore = r.goals().isEmpty() && !ProductState.SCORE_EXCLUDED.name().equals(r.state());
+            return new ScanResultResponse(noScore ? "NO_SCORE" : "RESULT", barcode, r, null);
         });
         if (res != null && res.result() != null) recordView(actor, res.result().productId(), ViewSource.BARCODE);
         return res;
@@ -166,11 +168,12 @@ public class ProductResultService {
                                        Actor actor, AnalysisRequestChannel insufficientChannel) {
         Owner owner = ownerResolver.resolveOrNull(actor);
         ProductStatus status = ProductStatus.of(nutrient);
-        ProductState state = ProductState.of(status, product.isDiscontinued(), link);
+        boolean excluded = product.isScoreExcluded();
+        ProductState state = ProductState.of(excluded, status, product.isDiscontinued(), link);
         ServingSize serving = nutrient == null ? null : ServingSize.parse(nutrient.getServingSize());
         String basis = ServingSize.basisOf(serving);
-        boolean scored = status == ProductStatus.ANALYZED;
-        if (!scored) {
+        boolean scored = !excluded && status == ProductStatus.ANALYZED;
+        if (!excluded && !scored) {   // 점수 제외는 분석 요청으로 보내지 않는다 (DATA_003 · 11-17)
             analysisRequestService.registerNutritionFillQuietly(product.getId(), actor, insufficientChannel);
         }
 

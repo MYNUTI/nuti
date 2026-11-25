@@ -123,7 +123,7 @@ public class AnalysisRequestService {
             Product product = productRepository.findById(req.getProductId())
                     .filter(Product::isActive)
                     .orElseThrow(() -> new CustomException(ErrorCode.PRODUCT_NOT_FOUND));
-            requireNotAnalyzed(product.getId());
+            requireNotAnalyzed(product);
             return toResponse(upsertNutritionFill(product.getId(), owner, sessionId, AnalysisRequestChannel.USER_PRODUCT));
         }
 
@@ -136,7 +136,7 @@ public class AnalysisRequestService {
             String barcode = BarcodeNormalizer.normalize(req.getBarcode());        // 형식 400 · 체크섬 400
             Product existing = productRepository.findByBarcode(barcode).stream().findFirst().orElse(null);
             if (existing != null) {
-                requireNotAnalyzed(existing.getId());
+                requireNotAnalyzed(existing);
                 // 바코드는 있는데 영양정보가 부족한 제품 → 보강 요청으로 받는다
                 return toResponse(upsertNutritionFill(existing.getId(), owner, sessionId, AnalysisRequestChannel.USER_PRODUCT));
             }
@@ -339,8 +339,12 @@ public class AnalysisRequestService {
 
     // ── 검증 ─────────────────────────────────────────────────────────────────────
 
-    private void requireNotAnalyzed(Long productId) {
-        if (ProductStatus.of(productNutrientRepository.findById(productId).orElse(null)) == ProductStatus.ANALYZED) {
+    /** 점수를 매기지 않는 종류(술 · 영유아식 · 환자용 식품)는 분석 요청을 받지 않는다(DATA_003 · 11-17). 이미 분석 완료면 409. */
+    private void requireNotAnalyzed(Product product) {
+        if (product.isScoreExcluded()) {
+            throw new CustomException(ErrorCode.SCORE_EXCLUDED);
+        }
+        if (ProductStatus.of(productNutrientRepository.findById(product.getId()).orElse(null)) == ProductStatus.ANALYZED) {
             throw new CustomException(ErrorCode.ALREADY_ANALYZED);
         }
     }

@@ -43,6 +43,7 @@ public enum ErrorCode {
     POLICY_VERSION_CONFLICT(HttpStatus.CONFLICT, "처리방침 버전이 일치하지 않습니다. 다시 동의해 주세요."),
     GRADE_NOT_AVAILABLE(HttpStatus.CONFLICT, "영양정보가 부족해 등급을 제공할 수 없습니다."),
     ALREADY_ANALYZED(HttpStatus.CONFLICT, "이미 분석이 완료된 제품입니다."),
+    SCORE_EXCLUDED(HttpStatus.CONFLICT, "점수를 매기지 않는 종류의 제품입니다."),
     SAVE_LIMIT_EXCEEDED(HttpStatus.CONFLICT, "저장 가능한 제품 수(200개)를 초과했습니다."),
 
     // 405 Method Not Allowed

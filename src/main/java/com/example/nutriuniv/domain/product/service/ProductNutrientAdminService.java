@@ -87,9 +87,9 @@ public class ProductNutrientAdminService {
         product.updateStatus(status);
         product.markManuallyCorrected();
 
-        // 등급 즉시 재계산 (9슬롯). 부족이면 슬롯 삭제만
+        // 등급 즉시 재계산 (9슬롯). 부족이거나 점수 제외 분류면 슬롯 삭제만
         Map<GoalType, String> grades = gradeBatchService.recomputeOne(productId,
-                status == ProductStatus.ANALYZED ? GradeLookupService.toInput(n) : null);
+                status == ProductStatus.ANALYZED && !product.isScoreExcluded() ? GradeLookupService.toInput(n) : null);
 
         String summary = String.join(" / ", changes) + " → " + status.label()
                 + (req.getMemo() == null || req.getMemo().isBlank() ? "" : " — " + req.getMemo().trim());

@@ -25,6 +25,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -33,6 +35,8 @@ import java.util.Map;
  * <ul>
  *   <li>순위 대상: 분석 완료 · 생산 중. 광고 · 제휴 · 노출비는 순서에 넣지 않는다</li>
  *   <li>칩(중분류 · 합산 칩)은 분석 완료 300개 이상일 때만 연다. 대분류 15개는 늘 보인다</li>
+ *   <li>숨긴 대분류 「기타」와 그 중분류는 어디에도 보이지 않는다(DATA_005). 그 제품은 순위 대상도 아니다(ProductListQuery)</li>
+ *   <li>탭 순서: 그 칩에 보이는 제품(소속 + 같이 보이는 제품)이 많은 순, 같으면 시드 순서</li>
  *   <li>필터: 판매처 · 브랜드 · 영양성분 탭끼리 AND, 탭 안 값끼리 OR</li>
  *   <li>목표는 요청으로만 받는다(저장 · 기록하지 않음). 없으면 감량</li>
  * </ul>
@@ -43,6 +47,8 @@ public class RankingService {
 
     public static final int MAX_PAGE_SIZE = 50;
     public static final int OVERVIEW_TOP = 3;
+    /** 랭킹 첫 화면 — 대분류마다 1위를 보일 중분류 수. */
+    public static final int LEADER_CHIPS = 3;
     public static final int TOP_BRANDS = 8;
 
     private final KcalBandResolver kcalBandResolver;
@@ -59,7 +65,7 @@ public class RankingService {
         Tree tree = tree();
         List<Major> majors = tree.majors().stream()
                 .map(m -> new Major(m.getCode(), m.getName(),
-                        tree.chipsOf(m).stream().map(this::chip).filter(Chip::open).toList()))
+                        tabs(tree, m).stream().map(this::chip).filter(Chip::open).toList()))
                 .toList();
         return new CategoriesResponse(majors, chipStats.updatedAt());
     }
@@ -69,7 +75,7 @@ public class RankingService {
         Tree tree = tree();
         List<AdminChip> out = new ArrayList<>();
         for (Category m : tree.majors()) {
-            for (Category c : tree.chipsOf(m)) {
+            for (Category c : tabs(tree, m)) {
                 ChipStatsService.Stat s = chipStats.stat(c.getId());
                 out.add(new AdminChip(c.getCode(), c.getName(), m.getCode(), c.isAggregate(), s.total(), s.analyzed(),
                         s.open(), RankingGate.failureReason(s.analyzed())));
@@ -112,7 +118,7 @@ public class RankingService {
         Owner owner = ownerResolver.resolveOrNull(actor);
 
         List<Group> groups = new ArrayList<>();
-        for (Category c : tree.chipsOf(major)) {
+        for (Category c : tabs(tree, major)) {
             if (!chipStats.stat(c.getId()).open()) continue;
             ProductListQuery.Page hits = listQuery.page(Scope.chip(c.getId()), true, filters, goal, EerBand.slot(goal, band),
                     ListSort.SCORE, null, OVERVIEW_TOP, 0);
@@ -120,6 +126,55 @@ public class RankingService {
             groups.add(new Group(info(c), coverage(c), ranked(cardService.cards(hits.ids(), goal, band, owner, ListSort.SCORE), 0)));
         }
         return new OverviewResponse(major.getCode(), major.getName(), goal.name(), band.kcal(), groups);
+    }
+
+    // ── GET /rankings/leaders ─────────────────────────────────────────────────────
+
+    /**
+     * 랭킹 첫 화면 (SRCH_007 · 11-24) — 대분류 15마다 순위가 열린 중분류 가운데 앞 3개(탭 순서)의 1위 제품을 한 번에.
+     * 필터가 켜져 있으면 필터에 맞는 제품이 있는 중분류만 센다. 합산 칩은 넣지 않는다(중분류만). 1위가 없는 대분류 묶음은 뺀다.
+     * 서로 다른 중분류끼리 순위를 매기지 않는다 — 각 줄은 그 중분류 안의 1위다.
+     */
+    @Transactional(readOnly = true)
+    public LeadersResponse leaders(String goalParam, Filters filters, Actor actor) {
+        Tree tree = tree();
+        GoalType goal = goal(goalParam);
+        EerBand band = kcalBandResolver.resolve(actor);
+        int slot = EerBand.slot(goal, band);
+        Owner owner = ownerResolver.resolveOrNull(actor);
+
+        record Pick(Category chip, long productId) {}
+        Map<Category, List<Pick>> byMajor = new LinkedHashMap<>();
+        List<Long> ids = new ArrayList<>();
+        for (Category major : tree.majors()) {
+            List<Pick> picks = new ArrayList<>(LEADER_CHIPS);
+            for (Category c : tabs(tree, major)) {
+                if (c.isAggregate() || !chipStats.stat(c.getId()).open()) continue;
+                List<Long> top = listQuery.top(Scope.chip(c.getId()), filters, goal, slot, 1);
+                if (top.isEmpty()) continue;
+                picks.add(new Pick(c, top.get(0)));
+                ids.add(top.get(0));
+                if (picks.size() == LEADER_CHIPS) break;
+            }
+            if (!picks.isEmpty()) byMajor.put(major, picks);
+        }
+
+        if (ids.isEmpty()) {
+            return new LeadersResponse(goal.name(), band.kcal(), chipStats.updatedAt(), List.of());
+        }
+        Map<Long, ProductCard> cards = new HashMap<>();
+        for (ProductCard card : cardService.cards(ids.stream().distinct().toList(), goal, band, owner, ListSort.SCORE)) {
+            cards.put(card.productId(), card);
+        }
+        List<LeaderGroup> groups = new ArrayList<>();
+        byMajor.forEach((major, picks) -> {
+            List<Leader> items = picks.stream()
+                    .filter(p -> cards.containsKey(p.productId()))
+                    .map(p -> new Leader(info(p.chip()), cards.get(p.productId())))
+                    .toList();
+            if (!items.isEmpty()) groups.add(new LeaderGroup(major.getCode(), major.getName(), items));
+        });
+        return new LeadersResponse(goal.name(), band.kcal(), chipStats.updatedAt(), groups);
     }
 
     // ── GET /rankings/filters · /rankings/brands ──────────────────────────────────
@@ -171,7 +226,12 @@ public class RankingService {
 
     // ── 내부 ─────────────────────────────────────────────────────────────────────
 
+    /** 랭킹에 보이는 분류 — 숨긴 분류(「기타」)는 처음부터 뺀다. */
     private record Tree(List<Category> all) {
+        Tree {
+            all = all.stream().filter(c -> !c.isHidden()).toList();
+        }
+
         List<Category> majors() {
             return all.stream()
                     .filter(c -> c.getParent() == null && c.getCode() != null && c.getCode().length() == 2)
@@ -187,6 +247,13 @@ public class RankingService {
         Category byCode(String code) {
             return all.stream().filter(c -> code.equals(c.getCode())).findFirst().orElse(null);
         }
+    }
+
+    /** 칩 탭 순서 — 그 칩에 보이는 제품이 많은 순(SRCH_007), 같으면 시드 순서. */
+    private List<Category> tabs(Tree tree, Category major) {
+        return tree.chipsOf(major).stream()
+                .sorted(Comparator.comparingLong((Category c) -> chipStats.stat(c.getId()).total()).reversed().thenComparing(ORDER))
+                .toList();
     }
 
     private static final Comparator<Category> ORDER =

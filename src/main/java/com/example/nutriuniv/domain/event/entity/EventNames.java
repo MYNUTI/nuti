@@ -2,7 +2,12 @@ package com.example.nutriuniv.domain.event.entity;
 
 import java.util.Set;
 
-/** 받는 이벤트 이름 (v3 이벤트 목록 61개). 목록에 없는 이름은 버린다. */
+/**
+ * 받는 이벤트 이름 (v3 이벤트 목록 LOG_002, 63개). 목록에 없는 이름은 버린다.
+ * 알림(11-24): analysis_notification_open = 분석 완료 알림을 눌러 들어옴(예전 이름 notification_open),
+ * notification_menu_tap = 내 정보 「알림」 줄 누름(props.logged_in), notification_login_tap = 알림 줄 띠의 [로그인] 누름.
+ * 띠에서 시작한 로그인은 login_complete 의 props.entry = "notification_prompt" 로 가른다(props 는 서버가 그대로 저장).
+ */
 public final class EventNames {
 
     private EventNames() {}
@@ -29,7 +34,9 @@ public final class EventNames {
             "contribute_submit", "contribute_complete", "contribute_abandon", "contribution_list_view", "report_submit",
             // 계정 · 동의
             "login_complete", "signup_consent", "record_merge", "consent_change", "logout", "account_delete",
-            "device_id_copy", "notification_open",
+            "device_id_copy",
+            // 알림 (스토어 앱 전에는 알림을 보내지 않고 누른 수만 센다 · RTN_008)
+            "analysis_notification_open", "notification_menu_tap", "notification_login_tap",
             // 몸 정보
             "body_profile_consent", "body_profile_set", "body_profile_clear",
             // 세션

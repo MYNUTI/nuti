@@ -10,6 +10,6 @@ public record SyncPreviewResponse(
         long reactivateCount,        // 다시 살릴 제품
         long disappearedCount,       // 원천에서 사라진 제품 (대기 테이블이 맡는 출처만)
         long activeLoadedCount,      // 대기 테이블이 맡는 출처의 활성 적재 제품 수
-        boolean massDeactivation,    // 어느 한 출처라도 사라진 제품이 10%를 넘는가 — 넘는 출처는 반영 때 비활성을 건너뛴다
+        boolean massDeactivation,    // 어느 한 출처라도 사라진 제품이 10%를 넘는가 — 넘는 출처는 반영 때 현행 아님 처리를 건너뛴다
         List<SourceDeactivation> sources   // 출처별 사라진 제품 · 10% 초과 여부
 ) {}

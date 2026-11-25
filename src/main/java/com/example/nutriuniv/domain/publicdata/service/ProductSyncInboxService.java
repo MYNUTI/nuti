@@ -38,7 +38,7 @@ import java.util.stream.Stream;
  *   <li>파일 이름은 product_master_YYYYMMDD.csv 만 읽는다. 쓰는 중인 .tmp 등은 무시한다</li>
  *   <li>파일마다 전체 제품 데이터라 <b>가장 새 날짜 파일 하나만</b> 반영한다. 그보다 오래된 미처리 파일은 건너뛴다(SUPERSEDED)</li>
  *   <li>처리 = 복제 테이블 채우기(ProductStagingLoader) → 반영(ProductSyncApplyService). 파일에 없는 제품은 원천에서 사라진 것으로 보고
- *       비활성으로 돌린다(출처별 10% 안전장치는 반영 서비스 그대로)</li>
+ *       현행 아님으로 돌린다 — 검색 · 스캔 · 기록에는 남고 랭킹 · 추천에서만 빠진다(출처별 10% 안전장치는 반영 서비스 그대로)</li>
  *   <li>처리 이력(product_sync_inbox_files)에 DONE 이 있는 파일은 자동 실행이 다시 처리하지 않는다. 실패한 파일은 다음 자동 실행에서 다시 해 본다</li>
  *   <li>한 번에 한 파일만, 뒤에서(별도 스레드) 처리한다 — 30만 행 반영은 HTTP 요청 · 스케줄러 스레드를 오래 잡는다</li>
  * </ul>
@@ -182,11 +182,11 @@ public class ProductSyncInboxService {
             SyncApplyResponse applied = applyService.apply(false);
             history.done(staged, applied);
             historyRepository.save(history);
-            log.info("[INBOX] {} 반영 완료 — 행 {} · 새로 {} · 수정 {} · 그대로 {} · 보호 {} · 살림 {} · 비활성 {}/{}{} · 실패 {} · hash 다름 {}",
+            log.info("[INBOX] {} 반영 완료 — 행 {} · 새로 {} · 수정 {} · 그대로 {} · 보호 {} · 다시 현행 {} · 현행 아님 {}/{}{} · 실패 {} · hash 다름 {}",
                     history.getFileName(), staged.stagedCount(), applied.createdCount(), applied.updatedCount(),
                     applied.unchangedCount(), applied.protectedCount(), applied.reactivatedCount(),
                     applied.deactivatedCount(), applied.disappearedCount(),
-                    applied.deactivationSkipped() ? " (10% 넘는 출처는 비활성 건너뜀)" : "",
+                    applied.deactivationSkipped() ? " (10% 넘는 출처는 현행 아님 건너뜀)" : "",
                     applied.failCount(), staged.hashMismatchCount());
         } catch (Exception e) {
             String reason = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();

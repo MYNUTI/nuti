@@ -103,6 +103,11 @@ public class Product {
     @Column(name = "is_active", nullable = false)
     private boolean isActive = true;
 
+    // 현행 여부 (DATA_000) — 적재 원천에서 사라진 제품은 FALSE. 검색 · 스캔 · 기록에는 그대로 보이고 랭킹 · 더 맞는 제품 · 추천에서만 빠진다.
+    // 배지는 붙이지 않는다(생산 중단 배지는 is_discontinued 근거가 있을 때만 · DATA_003). 원천에 다시 나타나면 TRUE
+    @Column(name = "is_current", nullable = false, columnDefinition = "boolean default true")
+    private boolean current = true;
+
     // pgvector 타입 (10차원). Python vectorize.py가 직접 write한다.
     // JPA INSERT/UPDATE에서 제외 — Python만 이 컬럼을 관리함
     @Column(name = "nutrient_vector", columnDefinition = "vector(10)", insertable = false, updatable = false)
@@ -133,6 +138,11 @@ public class Product {
     }
 
     /** 적재 파일로 새로 만든다 (v3 DATA_000). */
+    /** 소속 중분류가 점수를 매기지 않는 종류인가 (술 · 영유아식 · 환자용 식품, DATA_005 · DATA_003). */
+    public boolean isScoreExcluded() {
+        return category != null && category.isScoreExcluded();
+    }
+
     public static Product loaded(String masterId, String name) {
         Product p = new Product();
         p.masterId = masterId;

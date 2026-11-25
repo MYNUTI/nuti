@@ -51,7 +51,7 @@ public class ProductCardService {
     /** 카드를 만들 때 읽는 한 줄 — 비교 · 더 맞는 제품이 성분값을 다시 쓴다. */
     public record Row(long id, String name, String imageUrl, String brandLine, boolean discontinued,
                       String linkStatus, String affiliateUrl, LocalDateTime lastSyncedAt,
-                      Long categoryId, String servingSize, Map<Nutrient, BigDecimal> per100g) {
+                      Long categoryId, boolean scoreExcluded, String servingSize, Map<Nutrient, BigDecimal> per100g) {
 
         public ProductStatus status() {
             for (Nutrient n : Nutrient.values()) {
@@ -107,7 +107,8 @@ public class ProductCardService {
     public Map<Long, Row> rows(Collection<Long> ids) {
         if (ids.isEmpty()) return Map.of();
         String in = String.join(",", Collections.nCopies(ids.size(), "?"));
-        String sql = "SELECT p.id, p.name, p.image_url, p.is_discontinued, p.category_id, " + ProductListQuery.BRAND_LINE + " AS brand_line,"
+        String sql = "SELECT p.id, p.name, p.image_url, p.is_discontinued, p.category_id,"
+                + " COALESCE(pc.is_score_excluded, FALSE) AS score_excluded, " + ProductListQuery.BRAND_LINE + " AS brand_line,"
                 + " cl.link_status, cl.affiliate_url, cl.last_synced_at, pn.serving_size,"
                 + " pn.calories_per_100g, pn.protein_per_100g, pn.dietary_fiber_per_100g, pn.sugar_per_100g,"
                 + " pn.saturated_fat_per_100g, pn.trans_fat_per_100g, pn.cholesterol_per_100g, pn.sodium_per_100g"
@@ -115,6 +116,7 @@ public class ProductCardService {
                 + " LEFT JOIN brands b ON b.id = p.brand_id"
                 + " LEFT JOIN product_nutrients pn ON pn.product_id = p.id"
                 + " LEFT JOIN coupang_links cl ON cl.product_id = p.id"
+                + " LEFT JOIN categories pc ON pc.id = p.category_id"
                 + " WHERE p.is_active = TRUE AND p.id IN (" + in + ")";
         Map<Long, Row> out = new HashMap<>();
         jdbcTemplate.query(sql, rs -> {
@@ -129,10 +131,10 @@ public class ProductCardService {
     private ProductCard card(Row r, Map<GoalType, GradeRow> grades, GoalType goal, EerBand band,
                              Calibration cal, double trans, boolean saved, ListSort sort) {
         ProductStatus status = r.status();
-        ProductState state = ProductState.of(status, r.discontinued(), r.linkStatus(), r.affiliateUrl(), r.lastSyncedAt());
+        ProductState state = ProductState.of(r.scoreExcluded(), status, r.discontinued(), r.linkStatus(), r.affiliateUrl(), r.lastSyncedAt());
         List<ProductCard.GoalGrade> goals = new ArrayList<>(2);
         List<String> tags = List.of();
-        if (status == ProductStatus.ANALYZED) {
+        if (!r.scoreExcluded() && status == ProductStatus.ANALYZED) {   // 점수 제외는 성분이 있어도 점수를 매기지 않는다
             GradeFormula.Input input = input(r.per100g());
             for (GoalType g : GoalType.values()) {
                 int slot = EerBand.slot(g, band);
@@ -227,7 +229,7 @@ public class ProductCardService {
         Long cat = rs.getObject("category_id") == null ? null : rs.getLong("category_id");
         return new Row(rs.getLong("id"), rs.getString("name"), rs.getString("image_url"), rs.getString("brand_line"),
                 rs.getBoolean("is_discontinued"), rs.getString("link_status"), rs.getString("affiliate_url"),
-                synced == null ? null : synced.toLocalDateTime(), cat,
+                synced == null ? null : synced.toLocalDateTime(), cat, rs.getBoolean("score_excluded"),
                 rs.getString("serving_size"), per100g);
     }
 
