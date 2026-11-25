@@ -44,7 +44,7 @@ public class Product {
     private String masterId;
 
     // 품목제조보고번호 — 같이 저장만 한다(크롤링으로만 들어온 제품은 없을 수 있다)
-    @Column(name = "report_no", length = 20)
+    @Column(name = "report_no", length = 255)
     private String reportNo;
 
     @Column(name = "source", length = 30)
