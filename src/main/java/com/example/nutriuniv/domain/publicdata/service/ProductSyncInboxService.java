@@ -98,6 +98,9 @@ public class ProductSyncInboxService {
     void failInterrupted() {
         int n = historyRepository.failInterrupted(LocalDateTime.now(), "서버가 처리 도중 다시 시작되어 중단됨");
         if (n > 0) log.warn("[INBOX] 처리 도중 중단된 이력 {}건을 실패로 돌림 — 다시 처리합니다", n);
+        // 반영이 끊기면 적재 기록도 RUNNING 으로 남아 2시간 동안 「다른 적재가 진행 중」으로 막는다
+        int loads = loadService.failInterrupted();
+        if (loads > 0) log.warn("[INBOX] 처리 도중 중단된 적재 기록 {}건을 실패로 돌림", loads);
     }
 
     // ── 자동 실행 ────────────────────────────────────────────────────────────

@@ -168,8 +168,9 @@ class ProductSyncInboxServiceTest {
 
         verify(applyService, timeout(3000)).apply(false);
         verify(stagingLoader).load(newest);
-        var order = inOrder(historyRepository);   // 정리가 먼저 — 새 처리 이력을 실패로 돌리지 않게
+        var order = inOrder(historyRepository, loadService);   // 정리가 먼저 — 새 처리 이력을 실패로 돌리지 않게
         order.verify(historyRepository).failInterrupted(any(), anyString());
+        order.verify(loadService).failInterrupted();            // 끊긴 적재 기록이 새 처리를 막지 않게
         order.verify(historyRepository, atLeastOnce()).save(any());
     }
 
@@ -182,6 +183,7 @@ class ProductSyncInboxServiceTest {
         off.onStartup();
 
         verify(historyRepository).failInterrupted(any(), anyString());
+        verify(loadService).failInterrupted();
         verifyNoInteractions(stagingLoader, applyService);
     }
 
