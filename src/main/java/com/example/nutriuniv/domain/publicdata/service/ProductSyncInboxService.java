@@ -209,8 +209,9 @@ public class ProductSyncInboxService {
                     applied.deactivatedCount(), applied.disappearedCount(),
                     applied.deactivationSkipped() ? " (10% 넘는 출처는 현행 아님 건너뜀)" : "",
                     applied.failCount(), staged.hashMismatchCount());
-        } catch (Exception e) {
+        } catch (Exception | OutOfMemoryError e) {   // 메모리 부족도 이력에 남긴다(안 잡으면 「처리 중」으로 남음)
             String reason = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
+            if (e instanceof OutOfMemoryError) reason = "메모리 부족(" + reason + ")";
             log.error("[INBOX] {} 처리 실패 — {}", history.getFileName(), reason, e);
             history.fail(reason, staged);
             try {

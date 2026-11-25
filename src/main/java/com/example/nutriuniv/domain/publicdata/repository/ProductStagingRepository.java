@@ -44,23 +44,29 @@ public class ProductStagingRepository {
      * 반영할 행 — 실제 product 가 없거나, hash 가 다르거나, 원천에서 사라져 현행 아님이 됐다가 다시 나타난 행,
      * 또는 hash 는 같은데 같이 보이는 칩만 바뀐 행(칩 열이 있는 파일일 때만, 관리자가 고친 제품은 뺌).
      * 관리자가 비활성으로 돌린 제품은 건드리지 않는다.
+     * 수십만 행을 한 번에 들고 있지 않도록 master_id 순서로 한 쪽씩 읽는다({@link #findChangedPage}).
      */
-    private static final String CHANGED_SQL = """
+    private static final String CHANGED_SELECT = """
             SELECT s.master_id,
                    p.id AS product_id,
                    (p.id IS NOT NULL AND p.is_current = FALSE) AS reactivate
             FROM   product_staging s
             LEFT JOIN products p ON p.master_id = s.master_id
-            WHERE  p.id IS NULL
+            WHERE  (p.id IS NULL
                OR  (p.is_active = TRUE AND p.content_hash IS DISTINCT FROM s.content_hash)
                OR  (p.is_active = TRUE AND p.is_current = FALSE)
                OR  (p.is_active = TRUE AND p.manually_corrected = FALSE AND s.extra_categories IS NOT NULL
                     AND ARRAY(SELECT x FROM unnest(string_to_array(s.extra_categories, '|')) AS x ORDER BY x)
                         IS DISTINCT FROM
                         ARRAY(SELECT c.code::text FROM product_category_chips pcc JOIN categories c ON c.id = pcc.category_id
-                              WHERE pcc.product_id = p.id ORDER BY 1))
-            ORDER BY s.master_id
+                              WHERE pcc.product_id = p.id ORDER BY 1)))
             """;
+
+    private static final String CHANGED_PAGE_SQL = CHANGED_SELECT + " AND s.master_id > ? ORDER BY s.master_id LIMIT ?";
+
+    private static final String CHANGED_COUNT_SQL = "SELECT COUNT(*) AS total, "
+            + "COUNT(*) FILTER (WHERE x.product_id IS NULL) AS creates, "
+            + "COUNT(*) FILTER (WHERE x.reactivate) AS reactivates FROM (" + CHANGED_SELECT + ") x";
 
     /**
      * 이번 대기 테이블이 맡는 출처 — 대기 테이블에 한 행이라도 있는 source.
@@ -100,6 +106,9 @@ public class ProductStagingRepository {
 
     public record ChangedRow(String masterId, Long productId, boolean reactivate) {}
 
+    /** 반영할 행 수 — 전부 · 새로 만들 것 · 다시 현행으로 돌릴 것. */
+    public record ChangedCounts(long total, long create, long reactivate) {}
+
     public record DisappearedRow(Long productId, String source) {}
 
     private final JdbcTemplate jdbcTemplate;
@@ -136,11 +145,17 @@ public class ProductStagingRepository {
         }
     }
 
-    public List<ChangedRow> findChanged() {
-        return jdbcTemplate.query(CHANGED_SQL, (rs, i) -> new ChangedRow(
+    /** master_id 가 after 보다 뒤인 반영할 행을 master_id 순서로 limit 개까지. 첫 쪽은 after = "". */
+    public List<ChangedRow> findChangedPage(String after, int limit) {
+        return jdbcTemplate.query(CHANGED_PAGE_SQL, (rs, i) -> new ChangedRow(
                 rs.getString("master_id"),
                 (Long) rs.getObject("product_id", Long.class),
-                rs.getBoolean("reactivate")));
+                rs.getBoolean("reactivate")), after, limit);
+    }
+
+    public ChangedCounts countChanged() {
+        return jdbcTemplate.queryForObject(CHANGED_COUNT_SQL, (rs, i) -> new ChangedCounts(
+                rs.getLong("total"), rs.getLong("creates"), rs.getLong("reactivates")));
     }
 
     public List<DisappearedRow> findDisappeared() {

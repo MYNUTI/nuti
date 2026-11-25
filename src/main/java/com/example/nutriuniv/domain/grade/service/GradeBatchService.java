@@ -27,6 +27,7 @@ import java.util.stream.Collectors;
  * <ul>
  *   <li>재계산 중 조회는 직전 값을 그대로 본다(4.2) — TRUNCATE 가 아니라 DELETE + INSERT 를 한 트랜잭션에서(MVCC).</li>
  *   <li>쓰기는 JDBC 배치(1,000행). 엔티티 saveAll 은 복합키 병합 SELECT 가 행마다 나가 수십만 행에 부적합.</li>
+ *   <li>계산한 행은 1,000행이 차는 대로 넣고 버린다 — 제품 × 9슬롯(수백만 행)을 다 쌓아 두면 서버 힙이 모자란다.</li>
  *   <li>백분위는 구 배치와 같이 대분류(parent 없으면 자기 분류) 안에서 점수 내림차순.</li>
  * </ul>
  */
@@ -107,7 +108,9 @@ public class GradeBatchService {
         log.info("[GRADE] 분석 완료 제품 {}개 로드 — 기준 {}", inputs.size(), cal.version());
 
         Timestamp now = Timestamp.valueOf(LocalDateTime.now());
-        List<Object[]> rows = new ArrayList<>(inputs.size() * 9);
+        int deleted = jdbcTemplate.update("DELETE FROM product_grades");   // 같은 트랜잭션 — 커밋 전까지 조회는 직전 값
+        List<Object[]> batch = new ArrayList<>(BATCH_SIZE);
+        int saved = 0;
         int slotCount = 0;
 
         for (GoalType goal : GoalType.values()) {
@@ -128,7 +131,7 @@ public class GradeBatchService {
                         Scored s = group.get(i);
                         BigDecimal percentile = BigDecimal.valueOf((double) (total - i) / total * 100.0)
                                 .setScale(2, RoundingMode.HALF_UP);
-                        rows.add(new Object[]{
+                        batch.add(new Object[]{
                                 s.productId(),
                                 goal.name(),
                                 band,
@@ -139,21 +142,25 @@ public class GradeBatchService {
                                 cal.recalibrationId(),
                                 now
                         });
+                        if (batch.size() >= BATCH_SIZE) {
+                            jdbcTemplate.batchUpdate(INSERT_SQL, batch);
+                            saved += batch.size();
+                            batch = new ArrayList<>(BATCH_SIZE);
+                        }
                     }
                 }
             }
         }
-
-        int deleted = jdbcTemplate.update("DELETE FROM product_grades");
-        for (int from = 0; from < rows.size(); from += BATCH_SIZE) {
-            jdbcTemplate.batchUpdate(INSERT_SQL, rows.subList(from, Math.min(from + BATCH_SIZE, rows.size())));
+        if (!batch.isEmpty()) {
+            jdbcTemplate.batchUpdate(INSERT_SQL, batch);
+            saved += batch.size();
         }
         int statusUpdated = refreshProductStatus();
 
         long elapsed = System.currentTimeMillis() - startMs;
         log.info("[GRADE] 완료 — 기존 {}행 삭제, 제품 {}개 × {}슬롯 = {}행 저장, 제품 상태 {}건 갱신 ({}ms)",
-                deleted, inputs.size(), slotCount, rows.size(), statusUpdated, elapsed);
-        return new GradeBatchResult(inputs.size(), rows.size(), slotCount, elapsed, cal.version());
+                deleted, inputs.size(), slotCount, saved, statusUpdated, elapsed);
+        return new GradeBatchResult(inputs.size(), saved, slotCount, elapsed, cal.version());
     }
 
     /**
