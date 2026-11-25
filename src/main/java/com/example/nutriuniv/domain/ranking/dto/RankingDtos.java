@@ -48,6 +48,19 @@ public final class RankingDtos {
     /** GET /rankings/overview — 대분류 전체: 열린 칩마다 필터에 맞는 상위 3개(0개인 칩은 뺀다). */
     public record OverviewResponse(String majorCode, String majorName, String goal, int kcalBand, List<Group> groups) {}
 
+    /** 랭킹 첫 화면 한 줄 — 그 중분류의 1위 제품(「샐러드 1위」). */
+    public record Leader(CategoryInfo category, ProductCard product) {}
+
+    /** 대분류 한 묶음 — 순위가 열린 중분류 앞 3개(탭 순서)의 1위. */
+    public record LeaderGroup(String majorCode, String majorName, List<Leader> items) {}
+
+    /** GET /rankings/leaders — 랭킹 첫 화면(종류를 고르지 않았을 때): 대분류 15 순서로 묶음, 1위가 하나도 없는 묶음은 뺀다. */
+    public record LeadersResponse(
+            String goal,
+            int kcalBand,
+            @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss") LocalDateTime updatedAt,
+            List<LeaderGroup> groups) {}
+
     public record NutrientChip(String code, String label, String rule, long count, boolean hidden) {}
 
     public record BrandItem(String name, long count) {}

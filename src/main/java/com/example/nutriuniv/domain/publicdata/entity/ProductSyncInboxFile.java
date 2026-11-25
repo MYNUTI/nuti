@@ -92,7 +92,7 @@ public class ProductSyncInboxFile {
     @Column(name = "disappeared_count")
     private Integer disappearedCount;
 
-    /** 어느 출처에서 사라진 제품이 10%를 넘어 비활성을 건너뛰었는가. */
+    /** 어느 출처에서 사라진 제품이 10%를 넘어 현행 아님 처리를 건너뛰었는가. */
     @Column(name = "deactivation_skipped")
     private Boolean deactivationSkipped;
 

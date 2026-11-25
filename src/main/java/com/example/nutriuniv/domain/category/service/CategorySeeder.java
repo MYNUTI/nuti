@@ -18,9 +18,10 @@ import java.nio.charset.StandardCharsets;
 import java.util.*;
 
 /**
- * 분류 목록 시드 (v3 DATA_005) — 부팅 때 db/seed/categories.csv(데이터 팀 파일)로 대분류·중분류를 코드 기준으로 맞춘다.
- * 없으면 만들고, 이름·순서가 바뀌었으면 고친다. 파일에 없는 코드 행은 건드리지 않는다(제품이 물려 있을 수 있다). 재실행해도 같다.
- * 열: major_id, major_name, minor_id, minor_name. 노출 순서는 파일 순서.
+ * 분류 목록 시드 (v3 DATA_005) — 부팅 때 db/seed/categories.csv 로 대분류·중분류를 코드 기준으로 맞춘다.
+ * 없으면 만들고, 이름·순서·표식이 바뀌었으면 고친다. 파일에 없는 코드 행은 건드리지 않는다(제품이 물려 있을 수 있다). 재실행해도 같다.
+ * 열: major_id, major_name, minor_id, minor_name, is_hidden, is_score_excluded (뒤 두 열은 Y 면 켬, 없거나 비면 끔).
+ * 대분류는 그 아래 중분류가 모두 숨김이면 숨긴다(「기타」). 노출 순서는 파일 순서.
  */
 @Slf4j
 @Component
@@ -32,7 +33,11 @@ public class CategorySeeder implements ApplicationRunner {
     private final CategoryRepository categoryRepository;
 
     /** 파일 한 줄 = 중분류 하나와 그 대분류. */
-    record SeedRow(String majorCode, String majorName, String minorCode, String minorName) {}
+    record SeedRow(String majorCode, String majorName, String minorCode, String minorName, boolean hidden, boolean scoreExcluded) {
+        SeedRow(String majorCode, String majorName, String minorCode, String minorName) {
+            this(majorCode, majorName, minorCode, minorName, false, false);
+        }
+    }
 
     @Override
     @Transactional
@@ -44,27 +49,32 @@ public class CategorySeeder implements ApplicationRunner {
         Map<String, Category> byCode = new HashMap<>();
         for (Category c : categoryRepository.findAllByCodeIsNotNull()) byCode.put(c.getCode(), c);
 
+        Map<String, Boolean> majorHidden = new HashMap<>();
+        for (SeedRow row : rows) majorHidden.merge(row.majorCode(), row.hidden(), Boolean::logicalAnd);
+
         int created = 0, changed = 0;
         Map<String, Integer> majorOrder = new LinkedHashMap<>();
         Map<String, Integer> minorOrderInMajor = new HashMap<>();
         for (SeedRow row : rows) {
             boolean newMajor = !majorOrder.containsKey(row.majorCode());
             int mOrder = majorOrder.computeIfAbsent(row.majorCode(), k -> majorOrder.size() + 1);
+            boolean hiddenMajor = majorHidden.get(row.majorCode());
             Category major = byCode.get(row.majorCode());
             if (major == null) {
-                major = categoryRepository.save(Category.seeded(row.majorCode(), row.majorName(), null, mOrder));
+                major = categoryRepository.save(Category.seeded(row.majorCode(), row.majorName(), null, mOrder, hiddenMajor, false));
                 byCode.put(row.majorCode(), major);
                 created++;
-            } else if (newMajor && major.applySeed(row.majorName(), null, mOrder)) {
+            } else if (newMajor && major.applySeed(row.majorName(), null, mOrder, hiddenMajor, false)) {
                 changed++;
             }
 
             int order = minorOrderInMajor.merge(row.majorCode(), 1, Integer::sum);
             Category minor = byCode.get(row.minorCode());
             if (minor == null) {
-                byCode.put(row.minorCode(), categoryRepository.save(Category.seeded(row.minorCode(), row.minorName(), major, order)));
+                byCode.put(row.minorCode(), categoryRepository.save(
+                        Category.seeded(row.minorCode(), row.minorName(), major, order, row.hidden(), row.scoreExcluded())));
                 created++;
-            } else if (minor.applySeed(row.minorName(), major, order)) {
+            } else if (minor.applySeed(row.minorName(), major, order, row.hidden(), row.scoreExcluded())) {
                 changed++;
             }
         }
@@ -79,6 +89,7 @@ public class CategorySeeder implements ApplicationRunner {
         List<String> header = records.get(0).fields().stream().map(String::trim).toList();
         int mi = indexOf(header, "major_id"), mn = indexOf(header, "major_name");
         int ni = indexOf(header, "minor_id"), nn = indexOf(header, "minor_name");
+        int hi = header.indexOf("is_hidden"), si = header.indexOf("is_score_excluded");   // 없어도 됨
         List<SeedRow> rows = new ArrayList<>();
         Set<String> seenMinor = new HashSet<>();
         for (CsvReader.Record rec : records.subList(1, records.size())) {
@@ -95,9 +106,17 @@ public class CategorySeeder implements ApplicationRunner {
             if (!seenMinor.add(minorCode)) {
                 throw new IllegalStateException(SEED_PATH + " " + rec.line() + "줄: 중분류 코드 " + minorCode + " 가 겹칩니다.");
             }
-            rows.add(new SeedRow(majorCode, majorName, minorCode, minorName));
+            boolean hidden = flag(rec, hi), scoreExcluded = flag(rec, si);
+            if (scoreExcluded && !hidden) {
+                throw new IllegalStateException(SEED_PATH + " " + rec.line() + "줄: 점수를 매기지 않는 중분류는 숨김이어야 합니다.");
+            }
+            rows.add(new SeedRow(majorCode, majorName, minorCode, minorName, hidden, scoreExcluded));
         }
         return rows;
+    }
+
+    private static boolean flag(CsvReader.Record rec, int index) {
+        return index >= 0 && "Y".equalsIgnoreCase(rec.get(index).trim());
     }
 
     private static int indexOf(List<String> header, String name) {

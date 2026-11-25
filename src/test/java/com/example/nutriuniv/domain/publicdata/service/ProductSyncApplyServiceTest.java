@@ -126,12 +126,12 @@ class ProductSyncApplyServiceTest {
     }
 
     @Test
-    void 최신화가_비활성으로_돌렸던_제품이_다시_나타나면_살린다() {
+    void 현행_아님이던_제품이_다시_나타나면_현행으로_되돌린다() {
         when(stagingRepository.count()).thenReturn(1L);
         when(stagingRepository.findChanged()).thenReturn(List.of(new ChangedRow("A", 5L, true)));
         when(stagingRepository.findRows(anyList())).thenReturn(rows("A"));
         when(rowService.apply(any(), anyMap(), anyMap(), eq(false))).thenReturn(ProductCsvRowService.Outcome.UNCHANGED);
-        when(jdbcTemplate.update(contains("SET is_active = TRUE"), eq(5L))).thenReturn(1);
+        when(jdbcTemplate.update(contains("SET is_current = TRUE"), eq(5L))).thenReturn(1);
 
         SyncApplyResponse r = service.apply(false);
 
@@ -141,11 +141,11 @@ class ProductSyncApplyServiceTest {
     }
 
     @Test
-    void 사라진_제품은_비활성으로_돌리고_이력을_남긴다() {
+    void 사라진_제품은_끄지_않고_현행_아님으로_돌리고_이력을_남긴다() {
         when(stagingRepository.count()).thenReturn(100L);
         when(stagingRepository.findChanged()).thenReturn(List.of());
         when(stagingRepository.findDisappeared()).thenReturn(gone("nutri_db", 7L, 8L));   // 100개 중 2개 = 2%
-        when(jdbcTemplate.update(contains("SET is_active = FALSE"), anyLong())).thenReturn(1);
+        when(jdbcTemplate.update(contains("SET is_current = FALSE"), anyLong())).thenReturn(1);
 
         SyncApplyResponse r = service.apply(false);
 
@@ -167,7 +167,7 @@ class ProductSyncApplyServiceTest {
         List<DisappearedRow> rows = new ArrayList<>(gone("nutri_db", 1L, 2L));
         for (long id = 101; id <= 120; id++) rows.add(new DisappearedRow(id, "foodqr"));
         when(stagingRepository.findDisappeared()).thenReturn(rows);
-        when(jdbcTemplate.update(contains("SET is_active = FALSE"), anyLong())).thenReturn(1);
+        when(jdbcTemplate.update(contains("SET is_current = FALSE"), anyLong())).thenReturn(1);
 
         SyncApplyResponse r = service.apply(false);
 
@@ -177,16 +177,16 @@ class ProductSyncApplyServiceTest {
         assertEquals(List.of(
                 new SourceDeactivation("foodqr", 100, 20, 0, true),
                 new SourceDeactivation("nutri_db", 1000, 2, 2, false)), r.sources());   // 출처 이름순
-        verify(jdbcTemplate, never()).update(contains("SET is_active = FALSE"), eq(101L));
-        verify(jdbcTemplate).update(contains("SET is_active = FALSE"), eq(1L));
+        verify(jdbcTemplate, never()).update(contains("SET is_current = FALSE"), eq(101L));
+        verify(jdbcTemplate).update(contains("SET is_current = FALSE"), eq(1L));
     }
 
     @Test
-    void 강제하면_10퍼센트를_넘어도_비활성으로_돌린다() {
+    void 강제하면_10퍼센트를_넘어도_현행_아님으로_돌린다() {
         when(stagingRepository.count()).thenReturn(80L);
         when(stagingRepository.findChanged()).thenReturn(List.of());
         when(stagingRepository.findDisappeared()).thenReturn(gone("nutri_db", ids(20)));           // 100개 중 20개 = 20%
-        when(jdbcTemplate.update(contains("SET is_active = FALSE"), anyLong())).thenReturn(1);
+        when(jdbcTemplate.update(contains("SET is_current = FALSE"), anyLong())).thenReturn(1);
 
         SyncApplyResponse r = service.apply(true);
 
@@ -204,7 +204,7 @@ class ProductSyncApplyServiceTest {
 
         assertTrue(r.deactivationSkipped());
         assertEquals(0, r.deactivatedCount());
-        verify(jdbcTemplate, never()).update(contains("SET is_active = FALSE"), anyLong());
+        verify(jdbcTemplate, never()).update(contains("SET is_current = FALSE"), anyLong());
         verify(gradeBatchService, never()).recomputeAsync(any());   // 바뀐 것이 없다
     }
 

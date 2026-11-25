@@ -9,12 +9,14 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-/** v3 이벤트 — 61개 이름, 몸 정보 키 제거, 시각 해석. */
+/** v3 이벤트 — 63개 이름, 몸 정보 키 제거, 시각 해석. */
 class EventServiceTest {
 
     @Test
-    void 이벤트_이름은_61개() {
-        assertEquals(61, EventNames.KNOWN.size());
+    void 이벤트_이름은_63개() {
+        assertEquals(63, EventNames.KNOWN.size());
+        assertTrue(EventNames.KNOWN.containsAll(java.util.Set.of("analysis_notification_open", "notification_menu_tap", "notification_login_tap")));
+        assertFalse(EventNames.KNOWN.contains("notification_open"));   // 이름을 바꿈(분석 완료 알림)
         assertTrue(EventNames.KNOWN.contains("scan_complete"));
         assertFalse(EventNames.KNOWN.contains("unknown_event"));
     }

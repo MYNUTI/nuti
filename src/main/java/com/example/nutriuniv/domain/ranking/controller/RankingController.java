@@ -5,6 +5,7 @@ import com.example.nutriuniv.common.security.Actor;
 import com.example.nutriuniv.domain.ranking.dto.RankingDtos.BrandListResponse;
 import com.example.nutriuniv.domain.ranking.dto.RankingDtos.CategoriesResponse;
 import com.example.nutriuniv.domain.ranking.dto.RankingDtos.FilterSheetResponse;
+import com.example.nutriuniv.domain.ranking.dto.RankingDtos.LeadersResponse;
 import com.example.nutriuniv.domain.ranking.dto.RankingDtos.OverviewResponse;
 import com.example.nutriuniv.domain.ranking.dto.RankingDtos.RankingResponse;
 import com.example.nutriuniv.domain.ranking.service.RankingService;
@@ -52,6 +53,21 @@ public class RankingController {
             @RequestParam(defaultValue = "20") int size) {
         return ResponseEntity.ok(CommonResponse.success(rankingService.ranking(category, goal, sort,
                 RankingService.filters(brands, nutrients, sellers), page, size, actor)));
+    }
+
+    @Operation(summary = "랭킹 첫 화면 (종류를 고르지 않았을 때)",
+            description = "대분류 15 순서로, 대분류마다 순위가 열린 중분류 가운데 앞 3개(탭 순서 = 보이는 제품 많은 순)의 1위 제품을 한 번에 줍니다. " +
+                    "합산 칩은 넣지 않고, 서로 다른 중분류끼리 순위를 매기지 않습니다. 필터가 켜져 있으면 필터에 맞는 제품이 있는 중분류만 셉니다. " +
+                    "1위가 하나도 없는 대분류 묶음은 빼고, 모두 없으면 groups 빈 배열(「아직 순위가 열린 종류가 없어요」). updatedAt 은 마지막 제품 적재 시각. goal 은 저장하지 않습니다." + FILTER_DOC)
+    @GetMapping("/rankings/leaders")
+    public ResponseEntity<CommonResponse<LeadersResponse>> leaders(
+            Actor actor,
+            @Parameter(description = "WEIGHT_LOSS | MUSCLE_GAIN") @RequestParam(required = false) String goal,
+            @RequestParam(required = false) List<String> brands,
+            @RequestParam(required = false) List<String> nutrients,
+            @RequestParam(required = false) List<String> sellers) {
+        return ResponseEntity.ok(CommonResponse.success(rankingService.leaders(goal,
+                RankingService.filters(brands, nutrients, sellers), actor)));
     }
 
     @Operation(summary = "대분류 전체 순위",

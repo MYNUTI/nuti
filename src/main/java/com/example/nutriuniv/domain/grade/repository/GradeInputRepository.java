@@ -36,6 +36,7 @@ public class GradeInputRepository {
             JOIN   categories c         ON c.id = p.category_id
             JOIN   product_nutrients pn ON pn.product_id = p.id
             WHERE  p.is_active = TRUE
+              AND  c.is_score_excluded = FALSE
               AND  """ + ANALYZED_NUTRIENT_PREDICATE;
 
     public record GradeInput(long productId, long groupCategoryId, GradeFormula.Input input, boolean fiberIncluded) {}

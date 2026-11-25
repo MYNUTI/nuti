@@ -20,7 +20,7 @@ import java.util.Map;
  * 제품 목록 조회 공용 SQL (검색 · 랭킹 · 더 맞는 제품 · 필터 개수). 조회할 때 계산한다 — 필터 조합이 자유로워 미리 만든 순위 표로는 안 된다.
  * <ul>
  *   <li>Scope: 어떤 제품 묶음인가 (검색어 · 칩 · 중분류)</li>
- *   <li>rankable: 순위에 드는 제품만 — 분석 완료 · 생산 중 (등급 없음 · 단종 · 생산 중단 제외)</li>
+ *   <li>rankable: 순위에 드는 제품만 — 분석 완료 · 생산 중 · 현행 · 숨긴 분류(「기타」) 아님 (등급 없음 · 단종 · 생산 중단 · 현행 아님 · 점수 제외 · 분류 못 정함 제외)</li>
  *   <li>필터: 탭끼리는 AND, 탭 안 값끼리는 OR (SRCH_008)</li>
  * </ul>
  */
@@ -37,7 +37,8 @@ public class ProductListQuery {
              LEFT JOIN product_nutrients pn ON pn.product_id = p.id
              LEFT JOIN coupang_links cl ON cl.product_id = p.id
             """;
-    private static final String RANKABLE = "p.status = 'ANALYZED' AND p.is_discontinued = FALSE";
+    private static final String RANKABLE = "p.status = 'ANALYZED' AND p.is_discontinued = FALSE AND p.is_current = TRUE"
+            + " AND NOT EXISTS (SELECT 1 FROM categories hc WHERE hc.id = p.category_id AND hc.is_hidden = TRUE)";
 
     private final JdbcTemplate jdbcTemplate;
 
@@ -104,6 +105,18 @@ public class ProductListQuery {
 
     public Page page(Scope scope, boolean rankable, Filters f, GoalType goal, int slot, ListSort sort,
                      Long excludeId, int limit, int offset) {
+        List<Long> ids = ids(scope, rankable, f, goal, slot, sort, excludeId, limit, offset);
+        long total = (offset == 0 && ids.size() < limit) ? ids.size() : count(scope, rankable, f, excludeId);
+        return new Page(ids, total);
+    }
+
+    /** 순위 대상 상위 limit 개 id 만 — 전체 수를 세지 않는다(랭킹 첫 화면의 칩별 1위). */
+    public List<Long> top(Scope scope, Filters f, GoalType goal, int slot, int limit) {
+        return ids(scope, true, f, goal, slot, ListSort.SCORE, null, limit, 0);
+    }
+
+    private List<Long> ids(Scope scope, boolean rankable, Filters f, GoalType goal, int slot, ListSort sort,
+                           Long excludeId, int limit, int offset) {
         List<Object> args = new ArrayList<>(List.of(goal.name(), slot));
         String where = where(scope, rankable, f, excludeId, args);
         args.add(limit);
@@ -113,9 +126,7 @@ public class ProductListQuery {
                 + " WHERE " + where
                 + " ORDER BY " + sort.orderBy()
                 + " LIMIT ? OFFSET ?";
-        List<Long> ids = jdbcTemplate.query(sql, (rs, i) -> rs.getLong(1), args.toArray());
-        long total = (offset == 0 && ids.size() < limit) ? ids.size() : count(scope, rankable, f, excludeId);
-        return new Page(ids, total);
+        return jdbcTemplate.query(sql, (rs, i) -> rs.getLong(1), args.toArray());
     }
 
     // ── 필터 시트 (SRCH_008) ──────────────────────────────────────────────────────

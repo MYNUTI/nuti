@@ -28,10 +28,11 @@ import java.util.*;
  *       바코드 정규화 · 브랜드 · 분류 · 성분 · 분석 상태를 CSV 적재와 똑같이 처리하고, 제품마다 따로 커밋한다</li>
  *   <li>파일에 같이 보이는 칩 열(extra_categories)이 있으면 칩도 반영한다 — hash 는 같고 칩만 바뀐 제품은 칩만 바꾸고 수정 건수에 넣는다.
  *       열이 없는 파일이면 기존 칩을 그대로 둔다</li>
- *   <li>최신화가 비활성으로 돌렸던 제품이 원천에 다시 나타나면 살린다(관리자가 직접 비활성으로 돌린 제품은 그대로)</li>
- *   <li>원천에서 사라진 제품은 지우지 않고 is_active=false 로 돌리고 변경 이력(SYNC_DEACTIVATE)을 남긴다.
+ *   <li>원천에서 사라진 제품은 지우지도 끄지도 않고 현행 아님(is_current=false)으로 돌리고 변경 이력(SYNC_DEACTIVATE)을 남긴다 (DATA_000 · DATA_003 11-22) —
+ *       검색 · 스캔 · 기록에는 그대로 보이고 랭킹 · 더 맞는 제품 · 추천에서만 빠진다. 배지는 붙이지 않는다.
  *       <b>출처별로 관리한다</b> — 대기 테이블에 들어 있는 출처(source)의 제품만 대상이고, 다른 경로로 들어온 출처(올리브영 CSV 등)는 건드리지 않는다.
- *       출처마다 사라진 제품이 그 출처 적재 제품의 10%를 넘으면 수집이 덜 된 것으로 보고 그 출처만 비활성을 건너뛴다(allowMassDeactivation 으로 강제)</li>
+ *       출처마다 사라진 제품이 그 출처 적재 제품의 10%를 넘으면 수집이 덜 된 것으로 보고 그 출처만 건너뛴다(allowMassDeactivation 으로 강제)</li>
+ *   <li>현행 아님 제품이 원천에 다시 나타나면 현행으로 되돌린다(SYNC_REACTIVATE). 관리자가 비활성으로 돌린 제품은 그대로</li>
  *   <li>바뀐 것이 있으면 등급을 백그라운드로 전량 재계산한다</li>
  * </ol>
  * 적재 기록(ProductLoadService)을 같이 쓴다 — 반영 중에는 CSV 적재·다른 반영·등급 기준 재산출이 막힌다.
@@ -40,7 +41,7 @@ import java.util.*;
 @Service
 public class ProductSyncApplyService {
 
-    /** 한 출처에서 사라진 제품이 그 출처 적재 제품의 이 비율을 넘으면 그 출처는 비활성을 건너뛴다. */
+    /** 한 출처에서 사라진 제품이 그 출처 적재 제품의 이 비율을 넘으면 그 출처는 「현행 아님」을 건너뛴다. */
     static final double MAX_DEACTIVATION_RATIO = 0.10;
     static final String LOAD_NAME = "product-sync";
     private static final int CHUNK = 500;
@@ -123,7 +124,7 @@ public class ProductSyncApplyService {
                 boolean skip = !allowMassDeactivation && exceedsMassDeactivation(ids.size(), active);
                 int done = 0;
                 if (skip) {
-                    log.warn("[SYNC] 출처 {} — 사라진 제품 {}건이 적재 제품 {}건의 {}%를 넘어 비활성을 건너뜁니다. 수집이 덜 됐는지 확인하세요",
+                    log.warn("[SYNC] 출처 {} — 사라진 제품 {}건이 적재 제품 {}건의 {}%를 넘어 현행 아님 처리를 건너뜁니다. 수집이 덜 됐는지 확인하세요",
                             source, ids.size(), active, (int) (MAX_DEACTIVATION_RATIO * 100));
                 } else {
                     done = deactivate(ids);
@@ -141,7 +142,7 @@ public class ProductSyncApplyService {
         int disappearedTotal = sources.stream().mapToInt(SourceDeactivation::disappearedCount).sum();
         boolean anySkipped = sources.stream().anyMatch(SourceDeactivation::skipped);
         loadService.finish(loadId, (int) staged, c.created, c.updated, unchanged, c.protectedRows, c.failed);
-        log.info("[SYNC] 반영 id={} — 대기 {} · 후보 {} · 새로 {} · 수정 {}(칩만 {}) · 보호 {} · 살림 {} · 비활성 {}/{} · 실패 {} · 출처별 {}",
+        log.info("[SYNC] 반영 id={} — 대기 {} · 후보 {} · 새로 {} · 수정 {}(칩만 {}) · 보호 {} · 다시 현행 {} · 현행 아님 {}/{} · 실패 {} · 출처별 {}",
                 loadId, staged, changed.size(), c.created, c.updated, c.chipsOnly, c.protectedRows, c.reactivated,
                 c.deactivated, disappearedTotal, c.failed, sources);
 
@@ -182,7 +183,7 @@ public class ProductSyncApplyService {
                 case CREATED -> c.created++;
                 case UPDATED -> c.updated++;
                 case PROTECTED -> c.protectedRows++;
-                case UNCHANGED -> {   // hash 가 같음 — 다시 나타났거나 칩만 바뀐 경우
+                case UNCHANGED -> {   // hash 가 같음 — 다시 나타났거나(현행 아님 → 현행) 칩만 바뀐 경우
                     if (withChips && rowService.applyChips(ch.masterId(), chips, categoriesByCode)) {
                         c.updated++;
                         c.chipsOnly++;
@@ -198,14 +199,15 @@ public class ProductSyncApplyService {
         }
     }
 
+    /** 원천에 다시 나타난 현행 아님 제품을 현행으로. */
     private boolean reactivate(Long productId) {
         Integer n = txTemplate.execute(status -> {
             int updated = jdbcTemplate.update(
-                    "UPDATE products SET is_active = TRUE, updated_at = now() WHERE id = ? AND is_active = FALSE", productId);
+                    "UPDATE products SET is_current = TRUE, updated_at = now() WHERE id = ? AND is_current = FALSE", productId);
             if (updated > 0) {
                 jdbcTemplate.update("""
                         INSERT INTO product_change_logs (product_id, source, summary, created_at)
-                        VALUES (?, 'SYNC_REACTIVATE', '공공데이터 최신화: 원천에 다시 나타나 활성으로 되돌림', now())
+                        VALUES (?, 'SYNC_REACTIVATE', '적재 최신화: 원천에 다시 나타나 현행으로 되돌림', now())
                         """, productId);
             }
             return updated;
@@ -213,7 +215,7 @@ public class ProductSyncApplyService {
         return n != null && n > 0;
     }
 
-    /** 사라진 제품을 비활성으로 — CHUNK 단위로 커밋. 비활성으로 돌린 수. */
+    /** 사라진 제품을 현행 아님으로 — CHUNK 단위로 커밋. 돌린 수. 제품은 켜 둔다(검색 · 스캔 · 기록에 남음). */
     private int deactivate(List<Long> productIds) {
         int total = 0;
         for (int from = 0; from < productIds.size(); from += CHUNK) {
@@ -222,11 +224,11 @@ public class ProductSyncApplyService {
                 int done = 0;
                 for (Long id : chunk) {
                     int updated = jdbcTemplate.update(
-                            "UPDATE products SET is_active = FALSE, updated_at = now() WHERE id = ? AND is_active = TRUE", id);
+                            "UPDATE products SET is_current = FALSE, updated_at = now() WHERE id = ? AND is_current = TRUE", id);
                     if (updated > 0) {
                         jdbcTemplate.update("""
                                 INSERT INTO product_change_logs (product_id, source, summary, created_at)
-                                VALUES (?, 'SYNC_DEACTIVATE', '공공데이터 최신화: 원천에서 사라져 비활성으로 돌림', now())
+                                VALUES (?, 'SYNC_DEACTIVATE', '적재 최신화: 원천에서 사라져 현행 아님으로 돌림(랭킹 · 추천에서만 빠짐)', now())
                                 """, id);
                         done++;
                     }

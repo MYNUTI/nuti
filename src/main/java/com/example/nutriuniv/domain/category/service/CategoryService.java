@@ -27,7 +27,8 @@ public class CategoryService {
 
     @Transactional(readOnly = true)
     public List<CategoryTreeResponse> getCategoryTree() {
-        List<Category> all = categoryRepository.findAllByIsActiveTrue();
+        // 숨긴 분류(「기타」)는 종류 목록에 보이지 않는다 (DATA_005)
+        List<Category> all = categoryRepository.findAllByIsActiveTrue().stream().filter(c -> !c.isHidden()).toList();
 
         // 1패스: depth 역순으로 순회해서 leaf부터 노드 생성
         Map<Long, CategoryTreeResponse> nodeMap = new LinkedHashMap<>();

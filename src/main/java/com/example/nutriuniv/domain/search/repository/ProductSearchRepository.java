@@ -113,6 +113,7 @@ public class ProductSearchRepository {
                 FROM   products p
                 JOIN   product_grades pg ON pg.product_id = p.id AND pg.goal = ? AND pg.eer_band = ?
                 WHERE  p.is_active = TRUE AND p.category_id = ? AND p.status = 'ANALYZED' AND p.is_discontinued = FALSE
+                  AND  p.is_current = TRUE
                 ORDER BY pg.score DESC, p.name, p.id
                 LIMIT ?
                 """;
