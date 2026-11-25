@@ -61,27 +61,48 @@ public class ProductSyncInboxService {
     private final ProductLoadService loadService;
     private final ProductSyncInboxFileRepository historyRepository;
     private final AtomicBoolean running = new AtomicBoolean(false);
+    private final boolean runOnStartup;
 
     public ProductSyncInboxService(@Value("${product-sync.inbox.dir:/data/csv}") String dir,
+                                   @Value("${product-sync.inbox.run-on-startup:true}") boolean runOnStartup,
                                    ProductStagingLoader stagingLoader, ProductSyncApplyService applyService,
                                    ProductLoadService loadService, ProductSyncInboxFileRepository historyRepository) {
         this.dir = Path.of(dir);
+        this.runOnStartup = runOnStartup;
         this.stagingLoader = stagingLoader;
         this.applyService = applyService;
         this.loadService = loadService;
         this.historyRepository = historyRepository;
     }
 
-    /** 서버가 처리 도중 꺼졌으면(배포 등) PROCESSING 이 남는다 — 실패로 돌려 다음 자동 실행이 다시 하게 한다. */
+    /**
+     * 서버가 켜질 때.
+     * <ol>
+     *   <li>처리 도중 꺼졌으면(배포 등) PROCESSING 이 남는다 — 실패로 돌려 다시 처리할 수 있게 한다</li>
+     *   <li>가장 새 파일이 아직 반영 전이면 바로 처리를 시작한다(주 1회 자동 실행과 같은 규칙 · 이미 반영한 파일은 건너뜀) —
+     *       관리자 토큰 없이 파일을 넣고 서버를 다시 켜기만 해도 반영된다. product-sync.inbox.run-on-startup=false 면 끈다</li>
+     * </ol>
+     * 두 일을 한 곳에서 차례로 한다 — 따로 두면 1이 2가 막 만든 PROCESSING 이력을 실패로 돌릴 수 있다.
+     */
     @EventListener(ApplicationReadyEvent.class)
-    public void failInterrupted() {
+    public void onStartup() {
+        failInterrupted();
+        if (!runOnStartup) return;
+        try {
+            runScheduled();
+        } catch (RuntimeException e) {
+            log.error("[INBOX] 시작 때 반영 실패", e);
+        }
+    }
+
+    void failInterrupted() {
         int n = historyRepository.failInterrupted(LocalDateTime.now(), "서버가 처리 도중 다시 시작되어 중단됨");
-        if (n > 0) log.warn("[INBOX] 처리 도중 중단된 이력 {}건을 실패로 돌림 — 다음 자동 실행에서 다시 처리합니다", n);
+        if (n > 0) log.warn("[INBOX] 처리 도중 중단된 이력 {}건을 실패로 돌림 — 다시 처리합니다", n);
     }
 
     // ── 자동 실행 ────────────────────────────────────────────────────────────
 
-    /** 주 1회 정해진 요일·시각에(ProductSyncInboxScheduler) — 가장 새 파일이 아직 반영 전이면 처리를 시작한다. 없으면 건너뛴다. */
+    /** 주 1회 정해진 요일·시각에(ProductSyncInboxScheduler) · 서버가 켜질 때 — 가장 새 파일이 아직 반영 전이면 처리를 시작한다. 없으면 건너뛴다. */
     public void runScheduled() {
         if (!Files.isDirectory(dir)) {
             log.warn("[INBOX] 수신함 폴더가 없습니다 — {} (볼륨이 붙어 있는지 확인)", dir);
