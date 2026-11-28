@@ -23,11 +23,11 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 /**
- * 등급 전량 재계산 — 분석 완료 제품 × 9슬롯을 계산해 product_grades 를 한 트랜잭션으로 교체한다.
+ * 등급 전량 재계산 — 분석 완료 제품 × 8슬롯을 계산해 product_grades 를 한 트랜잭션으로 교체한다.
  * <ul>
  *   <li>재계산 중 조회는 직전 값을 그대로 본다(4.2) — TRUNCATE 가 아니라 DELETE + INSERT 를 한 트랜잭션에서(MVCC).</li>
  *   <li>쓰기는 JDBC 배치(1,000행). 엔티티 saveAll 은 복합키 병합 SELECT 가 행마다 나가 수십만 행에 부적합.</li>
- *   <li>계산한 행은 1,000행이 차는 대로 넣고 버린다 — 제품 × 9슬롯(수백만 행)을 다 쌓아 두면 서버 힙이 모자란다.</li>
+ *   <li>계산한 행은 1,000행이 차는 대로 넣고 버린다 — 제품 × 8슬롯(수백만 행)을 다 쌓아 두면 서버 힙이 모자란다.</li>
  *   <li>백분위는 구 배치와 같이 대분류(parent 없으면 자기 분류) 안에서 점수 내림차순.</li>
  * </ul>
  */
@@ -84,15 +84,15 @@ public class GradeBatchService {
         }
     }
 
-    /** 부팅 시 초기 적재용 — 서버 기동을 막지 않도록 별도 스레드. 실패해도 로그만 남긴다(다음 부팅·수동 실행에서 재시도). */
+    /** 부팅 · 제품 적재 뒤 — 요청을 막지 않도록 별도 스레드. 실패해도 로그만 남긴다(다음 부팅·수동 실행에서 재시도). */
     public void recomputeAsync(String reason) {
         Thread t = new Thread(() -> {
             try {
                 GradeBatchResult r = recomputeAll();
-                log.info("[GRADE] 초기 적재 완료 ({}) — 제품 {}개 × {}슬롯 = {}행, {}ms, 기준 {}",
+                log.info("[GRADE] 전량 재계산 완료 ({}) — 제품 {}개 × {}슬롯 = {}행, {}ms, 기준 {}",
                         reason, r.productCount(), r.combinations(), r.savedRows(), r.elapsedMs(), r.version());
             } catch (Exception e) {
-                log.error("[GRADE] 초기 적재 실패 ({}) — POST /admin/pns/calculate 로 다시 실행하세요", reason, e);
+                log.error("[GRADE] 전량 재계산 실패 ({}) — POST /admin/pns/calculate 로 다시 실행하세요", reason, e);
             }
         }, "grade-recompute");
         t.setDaemon(true);
@@ -164,7 +164,7 @@ public class GradeBatchService {
     }
 
     /**
-     * 한 제품의 9슬롯만 현행 기준으로 다시 계산해 교체 (관리자 영양성분 수정 직후 — 기능명세서 10.4 「영양정보를 고치면 등급도 바뀐다」).
+     * 한 제품의 8슬롯만 현행 기준으로 다시 계산해 교체 (관리자 영양성분 수정 직후 — 기능명세서 10.4 「영양정보를 고치면 등급도 바뀐다」).
      * 백분위는 비워 둔다(다음 전량 배치가 채운다). input 이 null(영양정보 부족)이면 기존 슬롯 삭제만. <b>호출자가 트랜잭션을 연다.</b>
      * @return 목표별 조회 슬롯(EerBand.defaultSlot)의 등급 — 삭제만 했으면 빈 맵
      */

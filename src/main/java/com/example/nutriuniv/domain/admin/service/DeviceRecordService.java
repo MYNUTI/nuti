@@ -12,6 +12,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -42,7 +43,7 @@ public class DeviceRecordService {
     private final DeviceDeletionLogRepository logRepository;
 
     @Transactional
-    public DeviceDeletionResponse delete(String anonymousId, String reason, Long adminUserId) {
+    public DeviceDeletionResponse delete(String anonymousId, String reason, LocalDateTime requestedAt, Long adminUserId) {
         String id = anonymousId == null ? "" : anonymousId.trim();
         if (!DEVICE_ID.matcher(id).matches()) {
             throw new CustomException(ErrorCode.BAD_REQUEST, "기기 ID 형식이 올바르지 않습니다.");
@@ -61,9 +62,10 @@ public class DeviceRecordService {
         int deletedTotal = deleted.values().stream().mapToInt(Integer::intValue).sum();
         int unlinkedTotal = unlinked.values().stream().mapToInt(Integer::intValue).sum();
 
-        logRepository.save(DeviceDeletionLog.of(ConsentService.sha256(id), adminUserId, deletedTotal, unlinkedTotal, memo));
+        DeviceDeletionLog saved = logRepository.save(
+                DeviceDeletionLog.of(ConsentService.sha256(id), adminUserId, deletedTotal, unlinkedTotal, memo, requestedAt));
         log.info("[ADMIN] 기기 기록 삭제 admin={} deleted={} unlinked={}", adminUserId, deletedTotal, unlinkedTotal);
-        return new DeviceDeletionResponse(deleted, unlinked, deletedTotal, unlinkedTotal);
+        return new DeviceDeletionResponse(deleted, unlinked, deletedTotal, unlinkedTotal, requestedAt, saved.getCreatedAt());
     }
 
     private boolean hasTable(String table) {

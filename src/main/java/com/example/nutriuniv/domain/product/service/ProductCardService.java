@@ -51,7 +51,8 @@ public class ProductCardService {
     /** 카드를 만들 때 읽는 한 줄 — 비교 · 더 맞는 제품이 성분값을 다시 쓴다. */
     public record Row(long id, String name, String imageUrl, String brandLine, boolean discontinued,
                       String linkStatus, String affiliateUrl, LocalDateTime lastSyncedAt, int missedRefreshes,
-                      Long categoryId, boolean scoreExcluded, String servingSize, Map<Nutrient, BigDecimal> per100g) {
+                      Long categoryId, boolean scoreExcluded, String servingSize, Map<Nutrient, BigDecimal> per100g,
+                      BigDecimal fatPer100g) {
 
         public ProductStatus status() {
             for (Nutrient n : Nutrient.values()) {
@@ -62,6 +63,10 @@ public class ProductCardService {
 
         public String basis() {
             return ServingSize.basisOf(ServingSize.parse(servingSize));
+        }
+
+        public boolean perMl() {
+            return ServingSize.isPerMl(servingSize);
         }
     }
 
@@ -76,13 +81,12 @@ public class ProductCardService {
         Map<Long, Map<GoalType, GradeRow>> grades = grades(rows.keySet(), band);
         Set<Long> saved = savedIds(owner);
         Calibration cal = calibrationService.current();
-        double trans = transThreshold(cal);
 
         List<ProductCard> out = new ArrayList<>(ids.size());
         for (Long id : ids) {
             Row r = rows.get(id);
             if (r == null) continue;
-            out.add(card(r, grades.getOrDefault(id, Map.of()), goal, band, cal, trans, saved.contains(id), sort));
+            out.add(card(r, grades.getOrDefault(id, Map.of()), goal, band, cal, saved.contains(id), sort));
         }
         return out;
     }
@@ -111,7 +115,7 @@ public class ProductCardService {
                 + " COALESCE(pc.is_score_excluded, FALSE) AS score_excluded, " + ProductListQuery.BRAND_LINE + " AS brand_line,"
                 + " cl.link_status, cl.affiliate_url, cl.last_synced_at, COALESCE(cl.missed_refreshes, 0) AS missed_refreshes, pn.serving_size,"
                 + " pn.calories_per_100g, pn.protein_per_100g, pn.dietary_fiber_per_100g, pn.sugar_per_100g,"
-                + " pn.saturated_fat_per_100g, pn.trans_fat_per_100g, pn.cholesterol_per_100g, pn.sodium_per_100g"
+                + " pn.saturated_fat_per_100g, pn.trans_fat_per_100g, pn.cholesterol_per_100g, pn.sodium_per_100g, pn.fat_per_100g"
                 + " FROM products p"
                 + " LEFT JOIN brands b ON b.id = p.brand_id"
                 + " LEFT JOIN product_nutrients pn ON pn.product_id = p.id"
@@ -129,14 +133,14 @@ public class ProductCardService {
     // ── 내부 ─────────────────────────────────────────────────────────────────────
 
     private ProductCard card(Row r, Map<GoalType, GradeRow> grades, GoalType goal, EerBand band,
-                             Calibration cal, double trans, boolean saved, ListSort sort) {
+                             Calibration cal, boolean saved, ListSort sort) {
         ProductStatus status = r.status();
         ProductState state = ProductState.of(r.scoreExcluded(), status, r.discontinued(), r.linkStatus(), r.affiliateUrl(), r.lastSyncedAt(),
                 r.missedRefreshes());
         List<ProductCard.GoalGrade> goals = new ArrayList<>(2);
-        List<String> tags = List.of();
+        List<ProductCard.Tag> tags = List.of();
         if (!r.scoreExcluded() && status == ProductStatus.ANALYZED) {   // 점수 제외는 성분이 있어도 점수를 매기지 않는다
-            GradeFormula.Input input = input(r.per100g());
+            GradeFormula.Input input = input(r.per100g(), r.perMl());
             for (GoalType g : GoalType.values()) {
                 int slot = EerBand.slot(g, band);
                 GradeRow gr = grades.get(g);
@@ -146,14 +150,11 @@ public class ProductCardService {
                 }
                 goals.add(new ProductCard.GoalGrade(g.name(), gr.score(), gr.grade().name(), calibrationService.label(g, gr.grade())));
             }
-            Map<Nutrient, Double> contrib = new EnumMap<>(Nutrient.class);
-            for (GradeFormula.Contribution c : GradeFormula.raw(goal, EerBand.slot(goal, band), input, cal.rules(goal)).contributions()) {
-                contrib.merge(c.nutrient(), c.value(), Double::sum);
-            }
-            tags = NutrientEvaluator.tags(goal, NutrientEvaluator.evaluate(goal, r.basis(), r.per100g(), trans, contrib));
+            tags = NutrientEvaluator.tags(goal, r.per100g(), r.fatPer100g(), r.perMl()).stream()
+                    .map(t -> new ProductCard.Tag(t.text(), t.type())).toList();
         }
         return new ProductCard(r.id(), r.name(), r.brandLine(), r.imageUrl(), state.name(), state.label(),
-                goals, tags, sortValue(r, sort), null, saved);
+                goals, tags.stream().map(ProductCard.Tag::text).toList(), tags, sortValue(r, sort), null, saved);
     }
 
     /** 영양소 정렬일 때 카드 태그 — 「단백질 21g · 100g당」. */
@@ -200,15 +201,9 @@ public class ProductCardService {
                 : savedProductRepository.findSavedProductIdsByAnonymousId(owner.anonymousId());
     }
 
-    private static double transThreshold(Calibration cal) {
-        return cal.rules(GoalType.DEFAULT).stream()
-                .filter(r -> r.nutrient() == Nutrient.TRANS_FAT)
-                .mapToDouble(Calibration.Rule::threshold).findFirst().orElse(0.0);
-    }
-
-    private static GradeFormula.Input input(Map<Nutrient, BigDecimal> m) {
+    private static GradeFormula.Input input(Map<Nutrient, BigDecimal> m, boolean perMl) {
         return new GradeFormula.Input(d(m, Nutrient.CALORIES), d(m, Nutrient.PROTEIN), d(m, Nutrient.DIETARY_FIBER), d(m, Nutrient.SUGAR),
-                d(m, Nutrient.SATURATED_FAT), d(m, Nutrient.TRANS_FAT), d(m, Nutrient.CHOLESTEROL), d(m, Nutrient.SODIUM));
+                d(m, Nutrient.SATURATED_FAT), d(m, Nutrient.TRANS_FAT), d(m, Nutrient.CHOLESTEROL), d(m, Nutrient.SODIUM), perMl);
     }
 
     private static double d(Map<Nutrient, BigDecimal> m, Nutrient n) {
@@ -231,7 +226,7 @@ public class ProductCardService {
         return new Row(rs.getLong("id"), rs.getString("name"), rs.getString("image_url"), rs.getString("brand_line"),
                 rs.getBoolean("is_discontinued"), rs.getString("link_status"), rs.getString("affiliate_url"),
                 synced == null ? null : synced.toLocalDateTime(), rs.getInt("missed_refreshes"), cat, rs.getBoolean("score_excluded"),
-                rs.getString("serving_size"), per100g);
+                rs.getString("serving_size"), per100g, rs.getBigDecimal("fat_per_100g"));
     }
 
     private static void put(Map<Nutrient, BigDecimal> m, Nutrient n, BigDecimal v) {

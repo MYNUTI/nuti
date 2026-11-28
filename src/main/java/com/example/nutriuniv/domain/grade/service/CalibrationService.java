@@ -23,7 +23,7 @@ import java.util.Optional;
  * 현행 기준(Calibration) 제공·캐시·시드.
  * <ul>
  *   <li>{@link #current()} — APPLIED 최신 버전의 스냅샷. 요청마다 DB 를 읽지 않는다. 재산출 적용 후 {@link #refresh()}.</li>
- *   <li>{@link #ensureSeeded()} — 부팅 시 APPLIED 버전이 없으면 v1(구 PnsCalculator 상수)을 시드, 문구(grade_copies)도 비어 있으면 시드.</li>
+ *   <li>{@link #ensureSeeded()} — 부팅 시 명세 기준 버전(DefaultCalibration.VERSION, CORE_001 · 11-18)이 없으면 시드해 현행으로 올리고 true, 문구(grade_copies)도 비어 있으면 시드.</li>
  * </ul>
  * DB 에 아무 버전도 없으면(시드 직전 순간) 코드 기본값으로 계산해 응답이 끊기지 않게 한다.
  */
@@ -50,7 +50,7 @@ public class CalibrationService {
                 c = loaded.get();
                 cached = c;
             } else {
-                log.warn("[GRADE] 적용된 기준 버전이 없어 코드 기본값(v1)으로 계산합니다. 부팅 시드가 아직 안 돌았거나 실패했습니다.");
+                log.warn("[GRADE] 적용된 기준 버전이 없어 코드 기본값({})으로 계산합니다. 부팅 시드가 아직 안 돌았거나 실패했습니다.", DefaultCalibration.VERSION);
                 c = DefaultCalibration.snapshot();
             }
         }
@@ -85,13 +85,21 @@ public class CalibrationService {
 
     // ── 시드 ──────────────────────────────────────────────────────────────────
 
+    /**
+     * 지금 점수 식의 처음 기준선({@link DefaultCalibration#VERSION})이 없으면 새 버전으로 시드하고 적용한다.
+     * 옛 식으로 쌓인 버전이 있어도 이 버전이 더 늦게 적용돼 현행이 된다. 한 번 시드되면 다음 부팅부터는 건너뛴다.
+     *
+     * @return 이번에 새로 시드했으면 true — 호출부가 product_grades 를 새 식으로 다시 채운다
+     */
     @Transactional
-    public void ensureSeeded() {
-        if (recalibrationRepository.findTopByStatusOrderByAppliedAtDesc(RecalibrationStatus.APPLIED).isEmpty()) {
-            GradeRecalibration v1 = recalibrationRepository.save(GradeRecalibration.applied(
+    public boolean ensureSeeded() {
+        boolean seeded = false;
+        if (!recalibrationRepository.existsByVersion(DefaultCalibration.VERSION)) {
+            GradeRecalibration base = recalibrationRepository.save(GradeRecalibration.applied(
                     DefaultCalibration.VERSION, LocalDate.now(), null, null, null, DefaultCalibration.MEMO, null));
-            saveSet(v1.getId(), DefaultCalibration.anchors(), DefaultCalibration.rules(), DefaultCalibration.cutoffs());
-            log.info("[GRADE] 초기 기준 {} 시드 완료 (id={})", v1.getVersion(), v1.getId());
+            saveSet(base.getId(), DefaultCalibration.anchors(), DefaultCalibration.rules(), DefaultCalibration.cutoffs());
+            log.info("[GRADE] 점수 식 기준선 {} 시드 · 적용 (id={})", base.getVersion(), base.getId());
+            seeded = true;
         }
         if (copyRepository.count() == 0) {
             List<GradeCopy> copies = DefaultCalibration.copies().stream()
@@ -101,6 +109,7 @@ public class CalibrationService {
             log.info("[GRADE] 등급 설명 문구 {}건 시드 완료", copies.size());
         }
         cached = null;
+        return seeded;
     }
 
     /** 한 버전의 앵커·기준값·컷오프 세트를 저장한다 (시드·재산출 공용). 호출자가 트랜잭션을 연다. */

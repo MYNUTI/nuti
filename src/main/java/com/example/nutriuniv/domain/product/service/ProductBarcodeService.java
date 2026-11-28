@@ -3,6 +3,8 @@ package com.example.nutriuniv.domain.product.service;
 import com.example.nutriuniv.domain.product.entity.Product;
 import com.example.nutriuniv.domain.product.entity.ProductBarcode;
 import com.example.nutriuniv.domain.product.repository.ProductBarcodeRepository;
+import com.example.nutriuniv.domain.scan.entity.BarcodeLinkReview;
+import com.example.nutriuniv.domain.scan.repository.BarcodeLinkReviewRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -15,14 +17,18 @@ import java.util.*;
 public class ProductBarcodeService {
 
     private final ProductBarcodeRepository barcodeRepository;
+    private final BarcodeLinkReviewRepository reviewRepository;
 
-    /** 제품의 바코드를 정확히 이 목록(14자리 정규화 값)으로 맞춘다. 바뀌었으면 true. */
+    /**
+     * 제품의 바코드를 정확히 이 목록(14자리 정규화 값)으로 맞춘다. 바뀌었으면 true.
+     * 사용자 선택으로 이은 바코드(확인 대기 · 확정, SCAN_008)는 목록에 없어도 남긴다.
+     */
     @Transactional
     public boolean replace(Product product, Collection<String> normalized14) {
         Set<String> wanted = new LinkedHashSet<>(normalized14);
         boolean changed = false;
         for (ProductBarcode b : barcodeRepository.findByProductId(product.getId())) {
-            if (!wanted.remove(b.getBarcode())) {
+            if (!wanted.remove(b.getBarcode()) && !linkedByPicks(product.getId(), b.getBarcode())) {
                 barcodeRepository.delete(b);
                 changed = true;
             }
@@ -32,6 +38,12 @@ public class ProductBarcodeService {
             changed = true;
         }
         return changed;
+    }
+
+    private boolean linkedByPicks(Long productId, String barcode) {
+        return reviewRepository.findByBarcodeAndProductId(barcode, productId)
+                .filter(r -> r.isLinkedByPicks() && r.getStatus() != BarcodeLinkReview.Status.REJECTED)
+                .isPresent();
     }
 
     @Transactional(readOnly = true)

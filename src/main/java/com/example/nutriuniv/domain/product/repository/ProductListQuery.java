@@ -110,6 +110,20 @@ public class ProductListQuery {
         return new Page(ids, total);
     }
 
+    /**
+     * 점수가 score 보다 높은 순위 대상 제품 수 — 공동 순위(1, 1, 3)의 순위 번호는 이 값 + 1 (SRCH_007 · 11-27).
+     * 보이는 점수(소수 첫째 자리)가 같으면 같은 순위다.
+     */
+    public long higherCount(Scope scope, Filters f, GoalType goal, int slot, java.math.BigDecimal score) {
+        List<Object> args = new ArrayList<>(List.of(goal.name(), slot));
+        String where = where(scope, true, f, null, args);
+        args.add(score);
+        Long n = jdbcTemplate.queryForObject("SELECT COUNT(*)" + FROM
+                + " JOIN product_grades pg ON pg.product_id = p.id AND pg.goal = ? AND pg.eer_band = ?"
+                + " WHERE " + where + " AND pg.score > ?", Long.class, args.toArray());
+        return n == null ? 0 : n;
+    }
+
     /** 순위 대상 상위 limit 개 id 만 — 전체 수를 세지 않는다(랭킹 첫 화면의 칩별 1위). */
     public List<Long> top(Scope scope, Filters f, GoalType goal, int slot, int limit) {
         return ids(scope, true, f, goal, slot, ListSort.SCORE, null, limit, 0);

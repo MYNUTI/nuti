@@ -38,15 +38,13 @@ import java.util.stream.Collectors;
 
 /**
  * 오류 제보 (v3 CTRB_008). 비로그인 가능, 연락처는 받지 않는다. 고른 항목마다 한 행, 같은 사람 · 제품 · 항목이 확인 중이면 새로 만들지 않는다.
- * 같은 사용자 하루 10건 초과 429 (KST, 소유자 → 세션 순).
+ * 하루 건수 상한은 없다 (CTRB_001 · 11-18).
  * 관리자가 DONE 으로 바꾸면(데이터를 고쳤다는 뜻) 제품에 재적재 보호를 켜고 수정 이력을 남긴다 — 실제 값 수정은 관리자 상품·영양성분 API.
  */
 @Service
 @RequiredArgsConstructor
 public class ProductReportService {
 
-    public static final int DAILY_LIMIT = 10;
-    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
     static final String MSG_RECEIVED = "보내 주셔서 고마워요. 확인 중이에요.";
     static final String MSG_DUPLICATE = "이미 보내 주신 내용이에요. 확인 중이에요.";
 
@@ -95,7 +93,6 @@ public class ProductReportService {
                     ReportStatus.RECEIVED.name(), ReportStatus.RECEIVED.label(), MSG_DUPLICATE);
         }
 
-        enforceDailyLimit(owner, sessionId);
         List<Long> ids = new ArrayList<>();
         for (ReportType t : fresh) {
             ids.add(reportRepository.save(ProductReport.create(product.getId(), t, content, barcode, owner, sessionId)).getId());
@@ -122,26 +119,6 @@ public class ProductReportService {
         }
     }
 
-    private void enforceDailyLimit(Owner owner, String sessionId) {
-        ZonedDateTime start = LocalDate.now(KST).atStartOfDay(KST);
-        ZoneId sys = ZoneId.systemDefault();
-        LocalDateTime from = start.withZoneSameInstant(sys).toLocalDateTime();
-        LocalDateTime to = start.plusDays(1).withZoneSameInstant(sys).toLocalDateTime();
-
-        long count;
-        if (owner != null && owner.isUser()) {
-            count = reportRepository.countByUserIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(owner.userId(), from, to);
-        } else if (owner != null) {
-            count = reportRepository.countByAnonymousIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(owner.anonymousId(), from, to);
-        } else if (sessionId != null && !sessionId.isBlank()) {
-            count = reportRepository.countBySessionIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(sessionId, from, to);
-        } else {
-            return;
-        }
-        if (count >= DAILY_LIMIT) {
-            throw new CustomException(ErrorCode.DAILY_LIMIT_EXCEEDED, "오류 제보는 하루 " + DAILY_LIMIT + "건까지 접수할 수 있어요.");
-        }
-    }
 
     // ── GET /admin/reports ───────────────────────────────────────────────────────────
 

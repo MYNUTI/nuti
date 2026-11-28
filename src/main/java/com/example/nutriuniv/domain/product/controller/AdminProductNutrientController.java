@@ -22,7 +22,7 @@ public class AdminProductNutrientController {
 
     // PATCH /admin/products/{productId}/nutrients
     @Operation(summary = "영양성분 수정 (명세 10.4)",
-            description = "전달된 필드만 수정(null 유지). 저장 후 분석 완료 판정을 갱신하고 그 제품의 등급 9슬롯을 즉시 재계산합니다(백분위는 다음 전량 배치). " +
+            description = "전달된 필드만 수정(null 유지). 저장 후 분석 완료 판정을 갱신하고 그 제품의 등급 8슬롯을 즉시 재계산합니다(백분위는 다음 전량 배치). " +
                     "재적재 보호(manuallyCorrected)를 켜고 수정 이력에 「필드: 전 → 후」를 남깁니다. reportId 를 주면 제보와 연결. 음수 400, 바뀐 필드 없음 400.")
     @PatchMapping("/admin/products/{productId}/nutrients")
     public ResponseEntity<CommonResponse<AdminProductNutrientUpdateResponse>> update(

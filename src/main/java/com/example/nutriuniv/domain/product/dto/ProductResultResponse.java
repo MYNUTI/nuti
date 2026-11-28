@@ -43,13 +43,17 @@ public record ProductResultResponse(
             String goalLabel,
             BigDecimal score,
             String grade,           // A~E
-            String label,           // 잘 맞음 · 맞는 편 · 보통 · 안 맞는 편 · 안 맞음
+            String label,           // 매우 높음 · 높음 · 중간 · 낮음 · 매우 낮음 (CORE_003)
             String summary,         // 한 줄 해석
             List<Point> goods,
             List<Point> bads,       // 아쉬운 점
             String badsEmptyText,   // 아쉬운 점이 없을 때만 「이 목표에서 아쉬운 점이 없어요」
-            ProductCard.BetterChoice better  // 더 맞는 제품: TOP(A·B) | AVAILABLE(같은 중분류에 더 높은 점수, count) | NONE
+            ProductCard.BetterChoice better, // 더 맞는 제품: TOP(A·B) | AVAILABLE(같은 중분류에 더 높은 점수, count) | NONE
+            Rank rank               // 순위 줄 — 순위가 닫힌 종류(분석 완료 300개 미만)이거나 순위 대상이 아니면 null
     ) {}
+
+    /** 종류 안 순위 줄 「프로틴바·간식 48개 중 12위」 (RSLT_003). 점수가 같으면 같은 순위(1, 1, 3). */
+    public record Rank(String categoryName, long total, long rank, String text) {}
 
     public record Point(String nutrient, String text, boolean missing, String note) {}
 

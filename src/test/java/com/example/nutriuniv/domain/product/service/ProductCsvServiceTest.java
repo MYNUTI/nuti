@@ -31,6 +31,8 @@ class ProductCsvServiceTest {
     @Mock ProductCsvRowService rowService;
     @Mock ProductLoadService loadService;
     @Mock CategoryRepository categoryRepository;
+    @Mock com.example.nutriuniv.domain.grade.service.GradeBatchService gradeBatchService;
+    @Mock com.example.nutriuniv.domain.ranking.service.ChipStatsService chipStats;
 
     @InjectMocks ProductCsvService service;
 

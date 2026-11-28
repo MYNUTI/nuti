@@ -9,7 +9,7 @@ import lombok.NoArgsConstructor;
 import java.time.LocalDateTime;
 
 /**
- * 제품 오류 제보 (v3 CTRB_008). 비로그인도 가능. 고른 항목마다 한 행. 하루 10건 한도 계산을 위해 소유자 외에 세션 ID 도 남긴다.
+ * 제품 오류 제보 (v3 CTRB_008). 비로그인도 가능. 고른 항목마다 한 행. 소유자 외에 세션 ID 도 남긴다.
  * v3 는 연락처(contact_email)를 받지 않는다 — 컬럼과 이미 있던 값은 그대로 두고 엔티티에서만 뺐다.
  * 처리 결과(메모·처리자·시각)는 여기, 실제 데이터 수정 이력은 product_change_logs.
  */

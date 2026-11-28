@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonFormat;
 import lombok.Builder;
 import lombok.Getter;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -21,6 +22,9 @@ public class GradeGuideResponse {
     private LocalDateTime updatedAt;            // 적용 시점
 
     private String appliedGoal;
+
+    @JsonFormat(pattern = "yyyy-MM-dd")
+    private LocalDate dataDate;                 // 성분 데이터 기준일 — 마지막으로 끝난 제품 적재일 (DATA_000 · RSLT_008). 첫 적재 전이면 null
 
     private List<Section> sections;             // 산정 단계 · 성분별 비중(기준값 포함) · 목표별 배점 차이 · 식이섬유 안내
 

@@ -23,4 +23,11 @@ public class KcalBandResolver {
         }
         return EerBand.DEFAULT;
     }
+
+    /** 로그인 유저 id 기준 (목록 · 추천처럼 Actor 를 받지 않는 호출부). null 이면 2,000. */
+    public EerBand resolveUser(Long userId) {
+        if (userId == null) return EerBand.DEFAULT;
+        EerBand stored = bodyProfileService.storedBand(userId);
+        return stored != null ? stored : EerBand.DEFAULT;
+    }
 }

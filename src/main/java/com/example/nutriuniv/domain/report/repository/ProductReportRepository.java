@@ -17,13 +17,6 @@ public interface ProductReportRepository extends JpaRepository<ProductReport, Lo
 
     Page<ProductReport> findByStatus(ReportStatus status, Pageable pageable);
 
-    // 하루 10건 한도 — 소유자 → 세션 순
-    long countByUserIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(Long userId, LocalDateTime from, LocalDateTime to);
-
-    long countByAnonymousIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(String anonymousId, LocalDateTime from, LocalDateTime to);
-
-    long countBySessionIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(String sessionId, LocalDateTime from, LocalDateTime to);
-
     // 같은 사람 · 같은 제품 · 같은 항목이 아직 확인 중이면 새로 만들지 않는다 (CTRB_008)
     boolean existsByUserIdAndProductIdAndReportTypeAndStatus(Long userId, Long productId, ReportType type, ReportStatus status);
 

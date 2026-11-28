@@ -62,7 +62,7 @@ class RankingLeadersTest {
         when(cardService.cards(anyList(), any(), any(), any(), any())).thenAnswer(inv -> {
             List<Long> ids = inv.getArgument(0);
             return ids.stream().map(id -> new ProductCard(id, "제품 " + id, null, null, "ANALYZED", "분석 완료",
-                    List.of(), List.of(), null, null, false)).toList();
+                    List.of(), List.of(), List.of(), null, null, false)).toList();
         });
     }
 

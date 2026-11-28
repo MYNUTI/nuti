@@ -13,6 +13,8 @@ import com.example.nutriuniv.domain.goal.dto.GoalUpdateResponse;
 import com.example.nutriuniv.domain.goal.entity.GoalType;
 import com.example.nutriuniv.domain.goal.entity.UserGoal;
 import com.example.nutriuniv.domain.goal.repository.UserGoalRepository;
+import com.example.nutriuniv.domain.body.service.KcalBandResolver;
+import com.example.nutriuniv.domain.grade.calc.EerBand;
 import com.example.nutriuniv.domain.grade.service.GradeLookupService;
 import com.example.nutriuniv.domain.product.entity.Product;
 import com.example.nutriuniv.domain.product.repository.ProductRepository;
@@ -37,6 +39,7 @@ public class GoalService {
     private final ConsentReader consentReader;
     private final OwnerResolver ownerResolver;
     private final GradeLookupService gradeLookupService;
+    private final KcalBandResolver kcalBandResolver;
     private final ProductRepository productRepository;
 
     // ── GET /me/goal ────────────────────────────────────────────────────────────────
@@ -65,7 +68,7 @@ public class GoalService {
         UserGoal ug = changeGoal(owner, goal);
 
         GoalUpdateResponse.Recalculation recalculation =
-                request.getRecalcProductId() == null ? null : recalculate(request.getRecalcProductId(), before, goal);
+                request.getRecalcProductId() == null ? null : recalculate(request.getRecalcProductId(), before, goal, kcalBandResolver.resolve(actor));
 
         return GoalUpdateResponse.builder()
                 .goal(goal.name())
@@ -123,16 +126,16 @@ public class GoalService {
      * 과거 기록을 재계산·저장하지 않는다 — 이후 조회부터 새 목표가 적용될 뿐이다.
      * reason 문장은 등급 근거(5.2) 도입 시 감점 요인 기반으로 대체한다.
      */
-    private GoalUpdateResponse.Recalculation recalculate(Long productId, GoalType before, GoalType after) {
+    private GoalUpdateResponse.Recalculation recalculate(Long productId, GoalType before, GoalType after, EerBand band) {
         Product product = productRepository.findById(productId).filter(Product::isActive).orElse(null);
         if (product == null) {
             return null;
         }
-        String afterGrade = gradeLookupService.lookupGrade(productId, after);
+        String afterGrade = gradeLookupService.lookupGrade(productId, after, band);
         if (afterGrade == null) {
             return null;
         }
-        String beforeGrade = gradeLookupService.lookupGrade(productId, before);
+        String beforeGrade = gradeLookupService.lookupGrade(productId, before, band);
         boolean changed = !Objects.equals(beforeGrade, afterGrade);
         String reason = changed
                 ? String.format("%s 목표 기준으로 다시 계산해 %s에서 %s로 바뀌었어요.", after.label(), beforeGrade, afterGrade)

@@ -2,6 +2,7 @@ package com.example.nutriuniv.domain.recommendation.service;
 
 import com.example.nutriuniv.domain.saved.repository.SavedProductRepository;
 import com.example.nutriuniv.domain.goal.entity.GoalType;
+import com.example.nutriuniv.domain.body.service.KcalBandResolver;
 import com.example.nutriuniv.domain.grade.service.GradeLookupService;
 import com.example.nutriuniv.domain.product.entity.Product;
 import com.example.nutriuniv.domain.product.repository.ProductRepository;
@@ -42,6 +43,7 @@ public class RecommendationService {
     private final UserNutritionRepository userNutritionRepository;
     private final SavedProductRepository savedProductRepository;
     private final GradeLookupService gradeLookupService;
+    private final KcalBandResolver kcalBandResolver;
 
     public RecommendationResponse getRecommendations(Long userId) {
         GoalType goal = gradeLookupService.resolveGoalType(userId);   // 열량구간은 1·2차 2000 고정 — 목표만 넘긴다
@@ -93,7 +95,7 @@ public class RecommendationService {
 
         List<Product> products = productRepository.findByIdInAndIsActiveTrue(productIds);
         Set<Long> favoritedIds = getFavoritedIds(userId);
-        Map<Long, String> gradeMap = gradeLookupService.lookupGrades(productIds, goal);
+        Map<Long, String> gradeMap = gradeLookupService.lookupGrades(productIds, goal, kcalBandResolver.resolveUser(userId));
 
         Map<Long, Product> productMap = products.stream()
                 .collect(Collectors.toMap(Product::getId, p -> p));
@@ -115,7 +117,7 @@ public class RecommendationService {
                                                         Long userId, GoalType goal) {
         List<Product> products = productRepository.findByIdInAndIsActiveTrue(productIds);
         Set<Long> favoritedIds = getFavoritedIds(userId);
-        Map<Long, String> gradeMap = gradeLookupService.lookupGrades(productIds, goal);
+        Map<Long, String> gradeMap = gradeLookupService.lookupGrades(productIds, goal, kcalBandResolver.resolveUser(userId));
 
         Map<Long, Product> productMap = products.stream()
                 .collect(Collectors.toMap(Product::getId, p -> p));
@@ -138,7 +140,7 @@ public class RecommendationService {
                 .findTopByIsActiveTrueOrderByViewCountDesc(PageRequest.of(0, DEFAULT_LIMIT));
         Set<Long> favoritedIds = getFavoritedIds(userId);
         List<Long> productIds = products.stream().map(Product::getId).collect(Collectors.toList());
-        Map<Long, String> gradeMap = gradeLookupService.lookupGrades(productIds, goal);
+        Map<Long, String> gradeMap = gradeLookupService.lookupGrades(productIds, goal, kcalBandResolver.resolveUser(userId));
 
         List<RecommendationItem> items = products.stream()
                 .map(p -> toItem(p, favoritedIds, null, gradeMap.get(p.getId())))

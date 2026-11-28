@@ -22,6 +22,10 @@ public class RecalibrationPreviewResponse {
     private Map<GoalType, Map<Grade, BigDecimal>> cutoffs;         // 목표별 A~D min_score (E 는 0)
     private Map<GoalType, Map<Grade, Long>> beforeDistribution;    // 현재 product_grades 분포 (조회 슬롯 기준)
     private Map<GoalType, Map<Grade, Long>> afterDistribution;     // 새 기준 적용 시 분포
+    private Map<GoalType, GradeChange> gradeChanges;               // 목표별 등급이 바뀌는 제품 수 (ADM_003)
+
+    /** 등급이 바뀌는 제품 — 모두 · 오르는 · 내리는 · 두 등급 이상 움직이는. */
+    public record GradeChange(long changed, long up, long down, long twoOrMore) {}
 
     @Getter
     @Builder

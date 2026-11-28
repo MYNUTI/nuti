@@ -27,7 +27,7 @@ public class ProductReportController {
             description = "reportTypes 여러 개 — WRONG_PRODUCT(다른 제품) | NAME_OR_IMAGE(이름 · 사진) | NUTRITION(영양정보) | OTHER(기타). 고른 항목마다 한 제보가 됩니다. " +
                     "옛 reportType 하나 · NAME · IMAGE · 한글 이름도 받습니다. content 1000자 — OTHER 를 고르면 필수. barcode(본 바코드) 선택. 연락처는 받지 않습니다. " +
                     "같은 사람 · 같은 제품 · 같은 항목이 아직 확인 중이면 새로 만들지 않고 duplicateTypes 로 알려 줍니다(전부 겹치면 duplicate=true). " +
-                    "비로그인 가능. 같은 사용자 하루 10건 초과 429. 없는 · 비활성 제품 404.")
+                    "비로그인 가능. 하루 건수 상한 없음. 없는 · 비활성 제품 404.")
     @PostMapping("/products/{productId}/reports")
     public ResponseEntity<CommonResponse<ReportCreateResponse>> submit(Actor actor,
                                                                        @Parameter(description = "제품 ID") @PathVariable Long productId,

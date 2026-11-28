@@ -55,13 +55,4 @@ public interface AnalysisRequestEventRepository extends JpaRepository<AnalysisRe
     @Query("UPDATE AnalysisRequestEvent e SET e.anonymousId = null WHERE e.anonymousId = :anonymousId")
     int unlinkAnonymous(@Param("anonymousId") String anonymousId);
 
-    // ── 일일 한도 ──────────────────────────────────────────────────────────────────
-    long countByChannelInAndUserIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(
-            Collection<AnalysisRequestChannel> channels, Long userId, LocalDateTime from, LocalDateTime to);
-
-    long countByChannelInAndAnonymousIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(
-            Collection<AnalysisRequestChannel> channels, String anonymousId, LocalDateTime from, LocalDateTime to);
-
-    long countByChannelInAndSessionIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(
-            Collection<AnalysisRequestChannel> channels, String sessionId, LocalDateTime from, LocalDateTime to);
 }

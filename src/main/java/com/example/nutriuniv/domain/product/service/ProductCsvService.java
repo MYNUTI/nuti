@@ -7,6 +7,8 @@ import com.example.nutriuniv.domain.brand.entity.Brand;
 import com.example.nutriuniv.domain.category.entity.Category;
 import com.example.nutriuniv.domain.category.repository.CategoryRepository;
 import com.example.nutriuniv.domain.product.dto.ProductUploadResponse;
+import com.example.nutriuniv.domain.grade.service.GradeBatchService;
+import com.example.nutriuniv.domain.ranking.service.ChipStatsService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -67,6 +69,8 @@ public class ProductCsvService {
     private final ProductCsvRowService rowService;
     private final ProductLoadService loadService;
     private final CategoryRepository categoryRepository;
+    private final GradeBatchService gradeBatchService;
+    private final ChipStatsService chipStats;
 
     public ProductUploadResponse upload(MultipartFile file) {
         if (file == null || file.isEmpty()) {
@@ -118,6 +122,10 @@ public class ProductCsvService {
         loadService.finish(loadId, total, created, updated, unchanged, protectedRows, fails.size());
         log.info("[ProductLoad] id={} file={} 제품 {} — 새로 {} · 수정 {} · 그대로 {} · 보호 {} · 실패 {}",
                 loadId, filename, total, created, updated, unchanged, protectedRows, fails.size());
+
+        // 새로 만들거나 고친 제품이 있으면 등급 · 백분위를 다시 계산하고(백분위는 전체 분포라 전량), 칩 개수 · 기준일을 바로 반영한다
+        chipStats.invalidate();
+        if (created + updated > 0) gradeBatchService.recomputeAsync("load " + loadId);
 
         fails.sort(Comparator.comparingInt(ProductUploadResponse.FailItem::getRowNumber));
         return ProductUploadResponse.builder()

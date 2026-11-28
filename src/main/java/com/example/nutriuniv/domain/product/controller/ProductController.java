@@ -128,8 +128,8 @@ public class ProductController {
     }
 
     // POST /admin/products
-    @Operation(summary = "제품 적재 (데이터 팀 CSV)",
-            description = "데이터 팀 최종 테이블 CSV(UTF-8)를 올려 master_id 기준으로 새로 만들거나 갱신합니다. 이름으로 합치지 않습니다. " +
+    @Operation(summary = "제품 적재 (CSV)",
+            description = "제품 CSV(UTF-8)를 올려 master_id 기준으로 새로 만들거나 갱신합니다. 이름으로 합치지 않습니다. " +
                     "바코드는 13자리로 맞춰 저장(N:M), category 는 중분류 코드(비면 분류 제외), content_hash 가 같으면 건너뜀, " +
                     "운영자가 고친 제품은 건너뜀. 제품별로 따로 저장해 실패한 제품만 줄 번호·이유와 함께 돌려줍니다. 적재 중에는 다른 적재가 409.")
     @PostMapping(value = "/admin/products", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
