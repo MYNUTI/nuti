@@ -10,6 +10,7 @@ import com.example.nutriuniv.domain.grade.calc.GradeFormula;
 import com.example.nutriuniv.domain.grade.entity.ProductGrade;
 import com.example.nutriuniv.domain.grade.repository.ProductGradeRepository;
 import com.example.nutriuniv.domain.product.entity.ProductNutrient;
+import com.example.nutriuniv.domain.product.util.ServingSize;
 import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -83,14 +84,26 @@ public class GradeLookupService {
     /** 등급 문자만 (A~E). 사전계산이 없으면 null. */
     @Transactional(readOnly = true)
     public String lookupGrade(Long productId, GoalType goal) {
-        return lookup(productId, goal).map(GradeView::grade).orElse(null);
+        return lookupGrade(productId, goal, EerBand.DEFAULT);
+    }
+
+    /** 열량구간 슬롯의 등급 문자 (CORE_008). */
+    @Transactional(readOnly = true)
+    public String lookupGrade(Long productId, GoalType goal, EerBand band) {
+        return lookup(productId, goal, band).map(GradeView::grade).orElse(null);
     }
 
     /** 여러 제품의 등급 문자 일괄 조회 (N+1 방지). 사전계산이 없는 제품은 키가 없다. */
     @Transactional(readOnly = true)
     public Map<Long, String> lookupGrades(Collection<Long> productIds, GoalType goal) {
+        return lookupGrades(productIds, goal, EerBand.DEFAULT);
+    }
+
+    /** 열량구간 슬롯의 등급 문자 일괄 조회 (CORE_008 — 목록 · 추천도 결과 화면과 같은 슬롯). */
+    @Transactional(readOnly = true)
+    public Map<Long, String> lookupGrades(Collection<Long> productIds, GoalType goal, EerBand band) {
         if (productIds == null || productIds.isEmpty()) return Map.of();
-        int slot = EerBand.defaultSlot(goal);
+        int slot = EerBand.slot(goal, band);
         Map<Long, String> result = new HashMap<>();
         for (ProductGrade g : productGradeRepository.findByProductIdInAndGoalAndEerBand(productIds, goal, slot)) {
             result.put(g.getProductId(), g.getGrade().name());
@@ -121,11 +134,12 @@ public class GradeLookupService {
         );
     }
 
-    /** 100g 기준 8종 → 산식 입력. 식이섬유가 없으면 0 (4.1). 판정 7종 결측은 호출자가 ProductStatus 로 먼저 걸러야 한다. */
+    /** 100g(mL) 기준 8종 → 점수 식 입력. 식이섬유가 없으면 0, 1회 제공량 단위가 mL 이면 100mL 기준선 (CORE_001). 판정 7종 결측은 호출자가 ProductStatus 로 먼저 걸러야 한다. */
     public static GradeFormula.Input toInput(ProductNutrient n) {
         return new GradeFormula.Input(
                 num(n.getCaloriesPer100g()), num(n.getProteinPer100g()), num(n.getFiberPer100g()), num(n.getSugarPer100g()),
-                num(n.getSaturatedFatPer100g()), num(n.getTransFatPer100g()), num(n.getCholesterolPer100g()), num(n.getSodiumPer100g()));
+                num(n.getSaturatedFatPer100g()), num(n.getTransFatPer100g()), num(n.getCholesterolPer100g()), num(n.getSodiumPer100g()),
+                ServingSize.isPerMl(n.getServingSize()));
     }
 
     private static double num(BigDecimal v) {

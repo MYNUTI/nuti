@@ -31,7 +31,7 @@ import java.util.*;
 /**
  * 등급 기준 재산출 (기능명세서 4.2·10.3).
  * <pre>
- *  전체 채점(raw) → 목표별 P1/P99 로 앵커 → 정규화 점수의 80/60/40/20% 지점을 A/B/C/D 컷오프 → 전체 등급 재계산
+ *  전체 채점(raw) → 목표별 아래 끝(원점수 1% 분위) · 위 끝(식의 최댓값, 고정) → 점수의 80/60/40/20% 지점을 A/B/C/D 경계 → 전체 등급 재계산
  * </pre>
  * <ul>
  *   <li>preview — 저장 없이 새 앵커·컷오프·전후 분포를 계산해 보여준다.</li>
@@ -89,6 +89,7 @@ public class GradeRecalibrationService {
                 .cutoffs(toCutoffDto(plan.cutoffs()))
                 .beforeDistribution(plan.before())
                 .afterDistribution(plan.after())
+                .gradeChanges(plan.changes())
                 .build();
     }
 
@@ -111,7 +112,7 @@ public class GradeRecalibrationService {
                 GradeRecalibration rec = recalibrationRepository.save(GradeRecalibration.applied(
                         version, LocalDate.now(), plan.targetCount(),
                         toJson(plan.before()), toJson(plan.after()),
-                        "재산출: P1/P99 앵커 · 80/60/40/20% 컷오프 (" + current.version() + " 기준값 승계)",
+                        "재산출: 아래 끝 원점수 1% 분위 · 위 끝 식의 최댓값 · 80/60/40/20% 경계 (" + current.version() + " 기준값 승계)",
                         adminUserId));
                 calibrationService.saveSet(rec.getId(), plan.anchors(), current.rules(), plan.cutoffs());
 
@@ -152,7 +153,8 @@ public class GradeRecalibrationService {
                 Map<GoalType, Calibration.Anchor> anchors,
                 Map<GoalType, List<Calibration.Cutoff>> cutoffs,
                 Map<GoalType, Map<Grade, Long>> before,
-                Map<GoalType, Map<Grade, Long>> after) {}
+                Map<GoalType, Map<Grade, Long>> after,
+                Map<GoalType, RecalibrationPreviewResponse.GradeChange> changes) {}
 
     Plan plan(Calibration current) {
         List<GradeInput> inputs = inputRepository.findAnalyzedInputs();
@@ -163,22 +165,23 @@ public class GradeRecalibrationService {
         Map<GoalType, Calibration.Anchor> anchors = new EnumMap<>(GoalType.class);
         Map<GoalType, List<Calibration.Cutoff>> cutoffs = new EnumMap<>(GoalType.class);
         Map<GoalType, Map<Grade, Long>> after = new EnumMap<>(GoalType.class);
+        Map<GoalType, RecalibrationPreviewResponse.GradeChange> changes = new EnumMap<>(GoalType.class);
 
         for (GoalType goal : GoalType.values()) {
-            int slot = EerBand.defaultSlot(goal);
-            List<Calibration.Rule> rules = current.rules(goal);
+            int slot = EerBand.defaultSlot(goal);   // 다이어트는 2,000kcal 구간으로 잡은 값을 네 구간에 같이 쓴다 (CORE_001)
 
-            double[] raws = inputs.stream()
-                    .mapToDouble(in -> GradeFormula.raw(goal, slot, in.input(), rules).raw())
-                    .sorted()
+            double[] byProduct = inputs.stream()
+                    .mapToDouble(in -> GradeFormula.raw(goal, slot, in.input()).raw())
                     .toArray();
-            double p1  = GradeFormula.round3(Quantiles.linear(raws, 0.01));
-            double p99 = GradeFormula.round3(Quantiles.linear(raws, 0.99));
-            if (p99 - p1 < 1e-6) {
+            double[] raws = Arrays.stream(byProduct).sorted().toArray();
+            // 아래 끝 = 원점수 1% 분위, 위 끝 = 식의 최댓값(고정 · 다시 계산하지 않음) — CORE_007 · 11-24
+            double low  = GradeFormula.round3(Quantiles.linear(raws, 0.01));
+            double high = GradeFormula.maxRaw(goal);
+            if (high - low < 1e-6) {
                 throw new CustomException(ErrorCode.STATE_CONFLICT,
-                        goal.label() + " 점수 분포가 퍼져 있지 않아(P1=P99) 앵커를 잡을 수 없습니다.");
+                        goal.label() + " 원점수 1% 분위가 식의 최댓값과 같아 0~100점으로 바꿀 수 없습니다.");
             }
-            Calibration.Anchor anchor = new Calibration.Anchor(p1, p99);
+            Calibration.Anchor anchor = new Calibration.Anchor(low, high);
 
             double[] scores = Arrays.stream(raws).map(r -> GradeFormula.normalize(r, anchor)).sorted().toArray();
             List<Calibration.Cutoff> cut = new ArrayList<>(5);
@@ -196,12 +199,26 @@ public class GradeRecalibrationService {
                 dist.merge(Calibration.gradeOf(sorted, s), 1L, Long::sum);
             }
 
+            // 등급이 바뀌는 제품 수 — 지금 기준과 새 기준을 같은 원점수에 대어 본다 (ADM_003)
+            Calibration.Anchor currentAnchor = current.anchor(goal);
+            long changed = 0, up = 0, down = 0, twoOrMore = 0;
+            for (double r : byProduct) {
+                Grade was = current.gradeOf(goal, GradeFormula.normalize(r, currentAnchor));
+                Grade now = Calibration.gradeOf(sorted, GradeFormula.normalize(r, anchor));
+                int step = was.ordinal() - now.ordinal();        // A 가 0 — 양수면 오른다
+                if (step == 0) continue;
+                changed++;
+                if (step > 0) up++; else down++;
+                if (Math.abs(step) >= 2) twoOrMore++;
+            }
+
             anchors.put(goal, anchor);
             cutoffs.put(goal, sorted);
             after.put(goal, dist);
+            changes.put(goal, new RecalibrationPreviewResponse.GradeChange(changed, up, down, twoOrMore));
         }
 
-        return new Plan(inputs.size(), anchors, cutoffs, beforeDistribution(), after);
+        return new Plan(inputs.size(), anchors, cutoffs, beforeDistribution(), after, changes);
     }
 
     private Map<GoalType, Map<Grade, Long>> beforeDistribution() {

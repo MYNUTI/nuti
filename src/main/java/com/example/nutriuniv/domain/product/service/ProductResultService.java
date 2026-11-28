@@ -10,6 +10,7 @@ import com.example.nutriuniv.domain.analysis.service.AnalysisRequestService;
 import com.example.nutriuniv.domain.consent.service.OwnerResolver;
 import com.example.nutriuniv.domain.coupang.entity.CoupangLink;
 import com.example.nutriuniv.domain.coupang.repository.CoupangLinkRepository;
+import com.example.nutriuniv.domain.category.entity.Category;
 import com.example.nutriuniv.domain.goal.entity.GoalType;
 import com.example.nutriuniv.domain.grade.calc.Calibration;
 import com.example.nutriuniv.domain.grade.calc.EerBand;
@@ -39,7 +40,10 @@ import com.example.nutriuniv.domain.product.repository.ProductNutrientRepository
 import com.example.nutriuniv.domain.product.repository.ProductRepository;
 import com.example.nutriuniv.domain.product.util.BarcodeNormalizer;
 import com.example.nutriuniv.domain.product.util.ServingSize;
+import com.example.nutriuniv.domain.ranking.service.ChipStatsService;
 import com.example.nutriuniv.domain.saved.repository.SavedProductRepository;
+import com.example.nutriuniv.domain.scan.entity.BarcodeName;
+import com.example.nutriuniv.domain.scan.service.BarcodePickService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -52,6 +56,7 @@ import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * 결과 화면 조립 (v3 RSLT_002 · CORE_004 · SCAN_010) — 제품 상세와 바코드 스캔이 같은 결과(ProductResultResponse)를 낸다.
@@ -82,6 +87,8 @@ public class ProductResultService {
     private final ProductListQuery listQuery;
     private final ViewHistoryService viewHistoryService;
     private final KcalBandResolver kcalBandResolver;
+    private final ChipStatsService chipStats;
+    private final BarcodePickService barcodePickService;
     private final TransactionTemplate txTemplate;
 
     public ProductResultService(ProductRepository productRepository,
@@ -97,6 +104,8 @@ public class ProductResultService {
                                 ProductListQuery listQuery,
                                 ViewHistoryService viewHistoryService,
                                 KcalBandResolver kcalBandResolver,
+                                ChipStatsService chipStats,
+                                BarcodePickService barcodePickService,
                                 PlatformTransactionManager transactionManager) {
         this.productRepository = productRepository;
         this.productNutrientRepository = productNutrientRepository;
@@ -111,6 +120,8 @@ public class ProductResultService {
         this.listQuery = listQuery;
         this.viewHistoryService = viewHistoryService;
         this.kcalBandResolver = kcalBandResolver;
+        this.chipStats = chipStats;
+        this.barcodePickService = barcodePickService;
         this.txTemplate = new TransactionTemplate(transactionManager);
     }
 
@@ -130,29 +141,42 @@ public class ProductResultService {
         EerBand band = kcalBandResolver.resolve(actor);
 
         ScanResultResponse res = txTemplate.execute(status -> {
+            Owner owner = ownerResolver.resolveOrNull(actor);
             List<Product> found = productRepository.findByBarcode(barcode);
             List<Product> active = found.stream().filter(Product::isActive).toList();
 
-            if (active.isEmpty()) {
-                // 어디에도 없음 → 새 제품 요청(같은 바코드는 횟수 +1). 비활성 제품만 있으면 등록하지 않는다
-                if (found.isEmpty()) analysisRequestService.registerNewProductByBarcodeQuietly(barcode, actor);
-                return new ScanResultResponse("NOT_FOUND", barcode, null, null);
-            }
+            // 분기 순서 (SCAN_010): 분석 완료 → 여러 개 → 등급 없음 → 비슷한 후보 → 이름만 아는 바코드 → 없음
+            if (active.size() == 1) return single(barcode, active.get(0), band, actor);
             if (active.size() > 1) {
-                List<ScanResultResponse.Candidate> candidates = active.stream().map(p -> {
-                    ProductState state = ProductState.of(p.isScoreExcluded(), ProductStatus.of(p.getProductNutrient()), p.isDiscontinued(), p.getCoupangLink());
-                    return new ScanResultResponse.Candidate(p.getId(), p.getName(), brandLine(p), p.getImageUrl(), state.name(), state.label());
-                }).toList();
-                return new ScanResultResponse("MULTIPLE", barcode, null, candidates);
+                // 내가 고른 제품이 있으면 다시 묻지 않는다 (SCAN_009)
+                Optional<Long> mine = barcodePickService.ownPick(barcode, owner);
+                Optional<Product> picked = mine.flatMap(id -> active.stream().filter(p -> p.getId().equals(id)).findFirst());
+                if (picked.isPresent()) return single(barcode, picked.get(), band, actor);
+
+                Map<Long, Long> picks = barcodePickService.pickCounts(barcode);   // 많이 고른 제품을 위로
+                List<ScanResultResponse.Candidate> candidates = active.stream()
+                        .sorted(java.util.Comparator.comparingLong((Product p) -> -picks.getOrDefault(p.getId(), 0L)))
+                        .map(ProductResultService::candidate).toList();
+                return new ScanResultResponse("MULTIPLE", barcode, null, candidates, null);
             }
 
-            Product product = active.get(0);
-            ProductNutrient nutrient = productNutrientRepository.findById(product.getId()).orElse(null);
-            CoupangLink link = coupangLinkRepository.findByProduct(product).orElse(null);
-            ProductResultResponse r = build(product, nutrient, link, band, actor, AnalysisRequestChannel.AUTO_SCAN);
-            // 점수 제외는 점수가 없어도 결과 화면으로 연다(「점수를 매기지 않는 종류예요」 + 성분표, 분석 요청으로 잇지 않음)
-            boolean noScore = r.goals().isEmpty() && !ProductState.SCORE_EXCLUDED.name().equals(r.state());
-            return new ScanResultResponse(noScore ? "NO_SCORE" : "RESULT", barcode, r, null);
+            // 우리 제품에 없는 바코드 — 확정 전에 내가 「맞아요」로 고른 제품이면 바로 결과 (SCAN_008)
+            Optional<Product> mine = barcodePickService.ownPick(barcode, owner)
+                    .flatMap(productRepository::findById).filter(Product::isActive);
+            if (mine.isPresent()) return single(barcode, mine.get(), band, actor);
+
+            if (found.isEmpty()) analysisRequestService.registerNewProductByBarcodeQuietly(barcode, actor);   // 비활성 제품만 있으면 등록하지 않는다
+            Optional<BarcodeName> known = barcodePickService.knownName(barcode);
+            if (known.isPresent()) {
+                ScanResultResponse.KnownName kn = new ScanResultResponse.KnownName(known.get().getName(), known.get().getCompany());
+                Optional<Product> similar = barcodePickService.similar(known.get())
+                        .flatMap(sim -> productRepository.findById(sim.productId()));
+                if (similar.isPresent()) {
+                    return new ScanResultResponse("CANDIDATE", barcode, null, List.of(candidate(similar.get())), kn);
+                }
+                return new ScanResultResponse("NAME_ONLY", barcode, null, null, kn);
+            }
+            return new ScanResultResponse("NOT_FOUND", barcode, null, null, null);
         });
         if (res != null && res.result() != null) recordView(actor, res.result().productId(), ViewSource.BARCODE);
         return res;
@@ -187,15 +211,15 @@ public class ProductResultService {
             for (GoalType goal : GoalType.values()) {
                 GradeLookupService.GradeView view = gradeLookupService.lookup(product.getId(), goal, band)
                         .orElseGet(() -> gradeLookupService.computeOnTheFly(nutrient, goal, band));
-                NutrientEvaluator.Evaluation ev = NutrientEvaluator.evaluate(goal, basis, per100g, transFatThreshold,
-                        contributions(cal, goal, band, nutrient));
+                NutrientEvaluator.Evaluation ev = NutrientEvaluator.evaluate(goal, subject(goal, band, nutrient, per100g), transFatThreshold);
                 tones.put(goal, ev.tones());
                 goals.add(new ProductResultResponse.GoalResult(
                         goal.name(), goal.label(), view.score(), view.grade(), view.label(), ev.summary(),
                         ev.goods().stream().map(ProductResultService::point).toList(),
                         ev.bads().stream().map(ProductResultService::point).toList(),
                         ev.bads().isEmpty() ? NutrientEvaluator.NO_BADS : null,
-                        better(product, goal, band, view.grade())));
+                        better(product, goal, band, view.grade()),
+                        rank(product, goal, band, view.score())));
             }
         }
 
@@ -218,6 +242,21 @@ public class ProductResultService {
                 PurchaseLinkService.of(product, link, LocalDateTime.now()),
                 isSaved(owner, product.getId()),
                 copyService.body("SOURCE_NOTE"));
+    }
+
+    /** 제품 하나 — 결과(RESULT) 또는 등급 없음(NO_SCORE). */
+    private ScanResultResponse single(String barcode, Product product, EerBand band, Actor actor) {
+        ProductNutrient nutrient = productNutrientRepository.findById(product.getId()).orElse(null);
+        CoupangLink link = coupangLinkRepository.findByProduct(product).orElse(null);
+        ProductResultResponse r = build(product, nutrient, link, band, actor, AnalysisRequestChannel.AUTO_SCAN);
+        // 점수 제외는 점수가 없어도 결과 화면으로 연다(「점수를 매기지 않는 종류예요」 + 성분표, 분석 요청으로 잇지 않음)
+        boolean noScore = r.goals().isEmpty() && !ProductState.SCORE_EXCLUDED.name().equals(r.state());
+        return new ScanResultResponse(noScore ? "NO_SCORE" : "RESULT", barcode, r, null, null);
+    }
+
+    private static ScanResultResponse.Candidate candidate(Product p) {
+        ProductState state = ProductState.of(p.isScoreExcluded(), ProductStatus.of(p.getProductNutrient()), p.isDiscontinued(), p.getCoupangLink());
+        return new ScanResultResponse.Candidate(p.getId(), p.getName(), brandLine(p), p.getImageUrl(), state.name(), state.label());
     }
 
     /** 브랜드 줄 — 브랜드가 비어 있으면 「제조 ○○」, 둘 다 없으면 null. */
@@ -245,6 +284,21 @@ public class ProductResultService {
         return ProductCardService.better(grade, count);
     }
 
+    /**
+     * 종류(중분류) 안 순위 줄 — 순위가 열린 종류(분석 완료 300개 이상)이고 이 제품이 순위 대상(단종 · 현행 아님 · 숨긴 분류 아님)일 때만.
+     * 칩에 보이는 제품 전체(같이 보이는 곳 포함) 가운데, 점수가 더 높은 제품 수 + 1.
+     */
+    private ProductResultResponse.Rank rank(Product product, GoalType goal, EerBand band, BigDecimal score) {
+        Category c = product.getCategory();
+        if (c == null || c.isHidden() || score == null || product.isDiscontinued() || !product.isCurrent()) return null;
+        if (!chipStats.stat(c.getId()).open()) return null;
+        ProductListQuery.Scope scope = ProductListQuery.Scope.chip(c.getId());
+        long total = listQuery.count(scope, true, ProductListQuery.Filters.NONE);
+        if (total == 0) return null;
+        long rank = listQuery.higherCount(scope, ProductListQuery.Filters.NONE, goal, EerBand.slot(goal, band), score) + 1;
+        return new ProductResultResponse.Rank(c.getName(), total, rank, c.getName() + " " + total + "개 중 " + rank + "위");
+    }
+
     private boolean isSaved(Owner owner, Long productId) {
         if (owner == null) return false;
         return owner.isUser()
@@ -264,12 +318,11 @@ public class ProductResultService {
                 .findFirst().orElse(0.0);
     }
 
-    private static Map<Nutrient, Double> contributions(Calibration cal, GoalType goal, EerBand band, ProductNutrient n) {
-        Map<Nutrient, Double> m = new EnumMap<>(Nutrient.class);
-        for (GradeFormula.Contribution c : GradeFormula.raw(goal, EerBand.slot(goal, band), GradeLookupService.toInput(n), cal.rules(goal)).contributions()) {
-            m.merge(c.nutrient(), c.value(), Double::sum);
-        }
-        return m;
+    /** 평가 대상 — 100g(mL)당 값, 1회 제공량당 식이섬유, 100mL 표시 여부, 근육 증가 칼로리 가점 여부 (CORE_004). */
+    static NutrientEvaluator.Subject subject(GoalType goal, EerBand band, ProductNutrient n, Map<Nutrient, BigDecimal> per100g) {
+        GradeFormula.Input input = GradeLookupService.toInput(n);
+        boolean bonus = GradeFormula.raw(goal, EerBand.slot(goal, band), input).calorieBonus();
+        return new NutrientEvaluator.Subject(per100g, n.getFiber(), input.perMl(), bonus);
     }
 
     public static List<ProductResultResponse.NutrientRow> nutrientRows(ProductNutrient n, Map<Nutrient, BigDecimal> per100g,

@@ -40,4 +40,10 @@ public record ServingSize(String text, BigDecimal amount, String unit) {
     public static String basisOf(ServingSize s) {
         return s != null && MILLILITER.equals(s.unit()) ? "100mL" : "100g";
     }
+
+    /** 성분 기준 단위가 100mL 인 제품인지 — 1회 제공량 단위가 mL · L 이면 true (점수 식 · 칩 · 태그의 100mL 기준선). */
+    public static boolean isPerMl(String raw) {
+        ServingSize s = parse(raw);
+        return s != null && MILLILITER.equals(s.unit());
+    }
 }

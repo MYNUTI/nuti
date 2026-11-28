@@ -50,17 +50,14 @@ import java.util.stream.Collectors;
  *   <li>바코드 · 검색어 · 제품 ID 는 식별값당 한 행 — INSERT … ON CONFLICT 로 request_count +1. 같은 기기(계정 · 기기 ID · 세션)는 한 번만 센다</li>
  *   <li>제품명 요청(이름 필수 · 브랜드 선택)은 늘 새 행</li>
  *   <li>자동 등록(스캔 404 · 영양정보 부족)은 조회 응답을 막지 않도록 별도 트랜잭션(REQUIRES_NEW)에서 조용히</li>
- *   <li>분석 완료 제품 409 ALREADY_ANALYZED. 검색어 · 제품명 요청은 합쳐서 하루 5건 초과 429 (KST)</li>
+ *   <li>분석 완료 제품 409 ALREADY_ANALYZED. 기기 · 계정당 하루 건수 상한은 없다 (CTRB_001 · 11-18)</li>
  * </ul>
  */
 @Slf4j
 @Service
 public class AnalysisRequestService {
 
-    public static final int DAILY_LIMIT = 5;
     public static final int KEYWORD_MAX_LENGTH = 30;
-    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
-    private static final Set<AnalysisRequestChannel> LIMITED = EnumSet.of(AnalysisRequestChannel.USER_KEYWORD, AnalysisRequestChannel.USER_NAME);
 
     static final String MSG_NEW = "요청을 받았어요. 분석이 끝나면 바로 볼 수 있어요.";
     static final String MSG_OTHERS_FIRST = "먼저 요청한 분이 있었어요. 분석이 끝나면 바로 볼 수 있어요.";
@@ -143,7 +140,6 @@ public class AnalysisRequestService {
             return toResponse(upsertBarcode(barcode, owner, sessionId, AnalysisRequestChannel.USER_BARCODE));
         }
         String keyword = normalizeKeyword(req.getKeyword());
-        enforceDailyLimit(owner, sessionId);
         return toResponse(upsertKeyword(keyword, owner, sessionId, AnalysisRequestChannel.USER_KEYWORD));
     }
 
@@ -160,7 +156,6 @@ public class AnalysisRequestService {
         String originBarcode = lenientBarcode(req.getOriginBarcode());
         String originKeyword = notBlank(req.getOriginKeyword()) ? truncate(squash(req.getOriginKeyword()), KEYWORD_MAX_LENGTH) : null;
 
-        enforceDailyLimit(owner, sessionId);
         AnalysisRequest saved = requestRepository.save(AnalysisRequest.nameRequest(name, brand, originBarcode, originKeyword));
         eventRepository.save(AnalysisRequestEvent.create(saved.getId(), owner, sessionId, AnalysisRequestChannel.USER_NAME));
         return new Outcome(saved, false, false);
@@ -349,33 +344,7 @@ public class AnalysisRequestService {
         }
     }
 
-    /** 검색어 · 제품명 요청은 합쳐서 같은 사용자 하루 5건까지 (KST). 소유자가 없으면 세션 기준, 그것도 없으면 셀 수 없어 통과. */
-    private void enforceDailyLimit(Owner owner, String sessionId) {
-        LocalDateTime[] today = todayKst();
-        long count;
-        if (owner != null && owner.isUser()) {
-            count = eventRepository.countByChannelInAndUserIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(LIMITED, owner.userId(), today[0], today[1]);
-        } else if (owner != null) {
-            count = eventRepository.countByChannelInAndAnonymousIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(LIMITED, owner.anonymousId(), today[0], today[1]);
-        } else if (notBlank(sessionId)) {
-            count = eventRepository.countByChannelInAndSessionIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(LIMITED, sessionId, today[0], today[1]);
-        } else {
-            return;
-        }
-        if (count >= DAILY_LIMIT) {
-            throw new CustomException(ErrorCode.DAILY_LIMIT_EXCEEDED, "분석 요청은 하루 " + DAILY_LIMIT + "건까지 보낼 수 있어요.");
-        }
-    }
 
-    /** KST 오늘 [00:00, 다음날 00:00) 을 서버 시간대의 LocalDateTime 으로. */
-    private static LocalDateTime[] todayKst() {
-        ZonedDateTime start = LocalDate.now(KST).atStartOfDay(KST);
-        ZoneId sys = ZoneId.systemDefault();
-        return new LocalDateTime[]{
-                start.withZoneSameInstant(sys).toLocalDateTime(),
-                start.plusDays(1).withZoneSameInstant(sys).toLocalDateTime()
-        };
-    }
 
     static String normalizeKeyword(String raw) {
         String k = squash(raw);

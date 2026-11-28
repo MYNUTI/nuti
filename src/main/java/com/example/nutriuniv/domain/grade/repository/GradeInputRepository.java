@@ -1,6 +1,7 @@
 package com.example.nutriuniv.domain.grade.repository;
 
 import com.example.nutriuniv.domain.grade.calc.GradeFormula;
+import com.example.nutriuniv.domain.product.util.ServingSize;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -12,7 +13,7 @@ import java.util.List;
 
 /**
  * 등급 계산 입력 — 「분석 완료」 제품(판정 7종 *_per_100g 전부 있음, 기능명세서 4.1)의 100g 기준 영양성분.
- * 식이섬유는 없으면 0 + fiberIncluded=false. 대분류(parent 없으면 자기 분류)는 백분위 그룹 키.
+ * 식이섬유는 없으면 0 + fiberIncluded=false. 1회 제공량 단위가 mL 이면 100mL 기준선(CORE_001). 대분류(parent 없으면 자기 분류)는 백분위 그룹 키.
  */
 @Repository
 @RequiredArgsConstructor
@@ -46,7 +47,8 @@ public class GradeInputRepository {
                 SELECT p.id,
                        COALESCE(c.parent_id, c.id) AS group_id,
                        pn.calories_per_100g, pn.protein_per_100g, pn.dietary_fiber_per_100g, pn.sugar_per_100g,
-                       pn.saturated_fat_per_100g, pn.trans_fat_per_100g, pn.cholesterol_per_100g, pn.sodium_per_100g
+                       pn.saturated_fat_per_100g, pn.trans_fat_per_100g, pn.cholesterol_per_100g, pn.sodium_per_100g,
+                       pn.serving_size
                 """ + FROM_ANALYZED + " ORDER BY p.id";
         return jdbcTemplate.query(sql, (rs, rowNum) -> map(rs));
     }
@@ -66,7 +68,8 @@ public class GradeInputRepository {
                 num(rs, "saturated_fat_per_100g"),
                 num(rs, "trans_fat_per_100g"),
                 num(rs, "cholesterol_per_100g"),
-                num(rs, "sodium_per_100g")
+                num(rs, "sodium_per_100g"),
+                ServingSize.isPerMl(rs.getString("serving_size"))
         );
         return new GradeInput(rs.getLong("id"), rs.getLong("group_id"), input, fiber != null);
     }

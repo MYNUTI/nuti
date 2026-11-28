@@ -7,6 +7,7 @@ import com.example.nutriuniv.domain.grade.calc.Calibration;
 import com.example.nutriuniv.domain.grade.calc.DefaultCalibration;
 import com.example.nutriuniv.domain.grade.dto.GradeGuideResponse;
 import com.example.nutriuniv.domain.grade.entity.Grade;
+import com.example.nutriuniv.domain.ranking.service.ChipStatsService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -27,6 +28,7 @@ public class GradeGuideService {
     private final GradeCopyService copyService;
     private final GradeLookupService gradeLookupService;
     private final OwnerResolver ownerResolver;
+    private final ChipStatsService chipStats;
 
     @Transactional(readOnly = true)
     public GradeGuideResponse guide(String goalParam, Actor actor) {
@@ -57,6 +59,7 @@ public class GradeGuideService {
                 .version(cal.version())
                 .updatedAt(cal.appliedAt())
                 .appliedGoal(goal.name())
+                .dataDate(chipStats.updatedAt() == null ? null : chipStats.updatedAt().toLocalDate())
                 .sections(sections)
                 .gradeScale(scale)
                 .build();

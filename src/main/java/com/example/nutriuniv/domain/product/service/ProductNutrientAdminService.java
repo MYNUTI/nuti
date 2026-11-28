@@ -27,7 +27,7 @@ import java.util.Map;
 
 /**
  * 관리자 영양성분 수정 (기능명세서 10.4 「영양정보를 고치면 등급도 바뀐다」·「수정한 값이 다음 적재 때 덮어쓰이지 않게」).
- * 전달된 필드만 바꾸고 → 분석 완료 판정 갱신 → 그 제품의 9슬롯 등급 즉시 재계산 → 재적재 보호 ON → 수정 이력 한 줄.
+ * 전달된 필드만 바꾸고 → 분석 완료 판정 갱신 → 그 제품의 8슬롯 등급 즉시 재계산 → 재적재 보호 ON → 수정 이력 한 줄.
  * 제보 처리(PATCH /admin/reports)와 별개로도 쓸 수 있다 — 1차는 엑셀 재업로드 외에 영양성분을 고칠 길이 없었다.
  */
 @Service
@@ -87,7 +87,7 @@ public class ProductNutrientAdminService {
         product.updateStatus(status);
         product.markManuallyCorrected();
 
-        // 등급 즉시 재계산 (9슬롯). 부족이거나 점수 제외 분류면 슬롯 삭제만
+        // 등급 즉시 재계산 (8슬롯). 부족이거나 점수 제외 분류면 슬롯 삭제만
         Map<GoalType, String> grades = gradeBatchService.recomputeOne(productId,
                 status == ProductStatus.ANALYZED && !product.isScoreExcluded() ? GradeLookupService.toInput(n) : null);
 

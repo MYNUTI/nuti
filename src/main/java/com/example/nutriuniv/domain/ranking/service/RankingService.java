@@ -23,6 +23,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -102,7 +103,8 @@ public class RankingService {
                 sort, null, size, page * size);
         List<ProductCard> cards = cardService.cards(hits.ids(), goal, band, owner, sort);
         return new RankingResponse(info(chip), goal.name(), band.kcal(), sort.name(), sort.label(), coverage(chip),
-                hits.total(), page, size, (long) (page + 1) * size < hits.total(), ranked(cards, page * size));
+                hits.total(), page, size, (long) (page + 1) * size < hits.total(),
+                ranked(cards, page * size, sort, goal, () -> scoreRankBase(chip, filters, goal, band, cards)));
     }
 
     // ── GET /rankings/overview ────────────────────────────────────────────────────
@@ -123,7 +125,7 @@ public class RankingService {
             ProductListQuery.Page hits = listQuery.page(Scope.chip(c.getId()), true, filters, goal, EerBand.slot(goal, band),
                     ListSort.SCORE, null, OVERVIEW_TOP, 0);
             if (hits.ids().isEmpty()) continue;
-            groups.add(new Group(info(c), coverage(c), ranked(cardService.cards(hits.ids(), goal, band, owner, ListSort.SCORE), 0)));
+            groups.add(new Group(info(c), coverage(c), ranked(cardService.cards(hits.ids(), goal, band, owner, ListSort.SCORE), 0, ListSort.SCORE, goal, () -> 0L)));
         }
         return new OverviewResponse(major.getCode(), major.getName(), goal.name(), band.kcal(), groups);
     }
@@ -302,10 +304,41 @@ public class RankingService {
         return new Coverage(s.total(), s.analyzed(), chipStats.updatedAt());
     }
 
-    private static List<Item> ranked(List<ProductCard> cards, int offset) {
+    /**
+     * 순위 번호 — 지금 정렬을 따른다. 「점수 높은 순」이면 보이는 점수가 같은 제품은 같은 번호, 다음 번호는 건너뛴다(1, 1, 3 · 11-27).
+     * firstHigher: 이 쪽 첫 제품보다 점수가 높은 제품 수 (앞 쪽에서 이어지는 공동 순위용, 첫 쪽이면 0).
+     */
+    static List<Item> ranked(List<ProductCard> cards, int offset, ListSort sort, GoalType goal,
+                             java.util.function.LongSupplier firstHigher) {
         List<Item> out = new ArrayList<>(cards.size());
-        for (int i = 0; i < cards.size(); i++) out.add(new Item(offset + i + 1, cards.get(i)));
+        if (sort != ListSort.SCORE) {
+            for (int i = 0; i < cards.size(); i++) out.add(new Item(offset + i + 1, cards.get(i)));
+            return out;
+        }
+        BigDecimal prev = null;
+        int rank = 0;
+        for (int i = 0; i < cards.size(); i++) {
+            BigDecimal score = score(cards.get(i), goal);
+            if (i == 0) {
+                rank = offset == 0 ? 1 : (int) firstHigher.getAsLong() + 1;
+            } else if (score == null || prev == null || score.compareTo(prev) != 0) {
+                rank = offset + i + 1;
+            }
+            prev = score;
+            out.add(new Item(rank, cards.get(i)));
+        }
         return out;
+    }
+
+    private long scoreRankBase(Category chip, Filters filters, GoalType goal, EerBand band, List<ProductCard> cards) {
+        BigDecimal first = cards.isEmpty() ? null : score(cards.get(0), goal);
+        return first == null ? 0 : listQuery.higherCount(Scope.chip(chip.getId()), filters, goal, EerBand.slot(goal, band), first);
+    }
+
+    private static BigDecimal score(ProductCard card, GoalType goal) {
+        if (card.goals() == null) return null;
+        return card.goals().stream().filter(g -> goal.name().equals(g.goal()))
+                .map(ProductCard.GoalGrade::score).findFirst().orElse(null);
     }
 
     private static GoalType goal(String raw) {

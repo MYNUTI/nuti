@@ -13,7 +13,7 @@ import java.util.Map;
 
 /**
  * 칩별 제품 수 · 분석 완료 수 (게이트 · 「000개 중 000개 점수 있음」). 전체를 한 번에 세고 10분 들고 있는다.
- * 칩에 보이는 제품 = 그 중분류 제품 + 「같이 보이는 곳」으로 그 칩을 단 제품.
+ * 칩에 보이는 제품 = 그 중분류 제품 + 「같이 보이는 곳」으로 그 칩을 단 제품. 현행이고 단종이 아닌 제품만 센다(순위 대상과 같은 바탕 · DATA_003).
  */
 @Service
 @RequiredArgsConstructor
@@ -63,11 +63,12 @@ public class ChipStatsService {
         jdbcTemplate.query("""
                 SELECT m.cid, COUNT(*) AS total, COUNT(*) FILTER (WHERE m.status = 'ANALYZED') AS analyzed
                   FROM (SELECT p.id, p.category_id AS cid, p.status
-                          FROM products p WHERE p.is_active = TRUE AND p.category_id IS NOT NULL
+                          FROM products p WHERE p.is_active = TRUE AND p.is_current = TRUE AND p.is_discontinued = FALSE
+                           AND p.category_id IS NOT NULL
                         UNION
                         SELECT p.id, pcc.category_id, p.status
                           FROM product_category_chips pcc JOIN products p ON p.id = pcc.product_id
-                         WHERE p.is_active = TRUE) m
+                         WHERE p.is_active = TRUE AND p.is_current = TRUE AND p.is_discontinued = FALSE) m
                  GROUP BY m.cid
                 """, rs -> {
             stats.put(rs.getLong(1), new Stat(rs.getLong(2), rs.getLong(3)));

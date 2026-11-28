@@ -27,7 +27,7 @@ public class AnalysisRequestController {
                     NEW_PRODUCT: barcode(8·12·13·14자리 → 13자리) 또는 keyword(30자). NUTRITION_FILL: productId.
                     바코드 · 검색어 · 제품 요청은 같은 대상이면 한 요청으로 모으고, 요청한 기기 수(requestCount)는 기기당 한 번만 셉니다.
                     alreadyRequested=true 면 먼저 요청한 기기가 있었거나 이 기기가 이미 요청한 것 — message 를 그대로 보여 주면 됩니다.
-                    분석 완료 제품 409 ALREADY_ANALYZED. 검색어 · 제품명 요청은 합쳐 하루 5건 초과 429.
+                    분석 완료 제품 409 ALREADY_ANALYZED. 하루 건수 상한 없음.
                     """)
     @PostMapping("/analysis-requests")
     public ResponseEntity<CommonResponse<AnalysisRequestResponse>> submit(Actor actor,

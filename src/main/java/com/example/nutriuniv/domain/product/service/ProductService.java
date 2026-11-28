@@ -153,7 +153,7 @@ public class ProductService {
             page = productRepository.findAll(spec, pageable);
         }
         List<Long> productIds = page.getContent().stream().map(Product::getId).collect(Collectors.toList());
-        Map<Long, String> gradeMap = gradeLookupService.lookupGrades(productIds, goal);
+        Map<Long, String> gradeMap = gradeLookupService.lookupGrades(productIds, goal, kcalBandResolver.resolveUser(userId));
 
         Map<Long, Integer> priceMap = coupangLinkRepository.findByProductIdIn(productIds).stream()
                 .filter(l -> PurchaseLinkService.priceVisible(l.getProduct(), l))   // 같은 용량 · 판매 상태 확인된 것만 (DATA_006)

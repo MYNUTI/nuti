@@ -8,8 +8,11 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+
+import java.time.LocalDateTime;
 
 @Tag(name = "Admin - Device", description = "기기 기록 삭제 (v3 ADM_006)")
 @RestController
@@ -22,12 +25,14 @@ public class AdminDeviceController {
     @Operation(summary = "기기 기록 삭제",
             description = "사용자가 기기 ID(설정 > 기기 ID 복사)를 알려 주며 삭제를 요청했을 때. 되돌릴 수 없습니다. " +
                     "최근 본 제품 · 즐겨찾기 · 기기 목표 · 기기 등록을 지우고, 분석 요청 · 제보 · 이용 로그 · 이벤트는 기기 연결만 끊습니다. " +
-                    "누가 언제 지웠는지 기기 ID 해시로 남깁니다. 표마다 지운 행 수를 돌려줍니다(없는 기기면 모두 0).")
+                    "누가 · 요청 시각 · 처리 시각 · 결과를 기기 ID 해시로 남깁니다. 표마다 지운 행 수를 돌려줍니다(없는 기기면 모두 0).")
     @DeleteMapping("/admin/devices/{anonymousId}/records")
     public ResponseEntity<CommonResponse<DeviceDeletionResponse>> delete(
             Actor actor,
             @Parameter(description = "기기 ID (X-Anonymous-Id 값)") @PathVariable String anonymousId,
-            @Parameter(description = "삭제 사유 (선택, 200자)") @RequestParam(required = false) String reason) {
-        return ResponseEntity.ok(CommonResponse.success(deviceRecordService.delete(anonymousId, reason, actor.userId())));
+            @Parameter(description = "삭제 사유 (선택, 200자)") @RequestParam(required = false) String reason,
+            @Parameter(description = "사용자가 요청한 시각 (선택, 예: 2026-11-28T10:30:00)")
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime requestedAt) {
+        return ResponseEntity.ok(CommonResponse.success(deviceRecordService.delete(anonymousId, reason, requestedAt, actor.userId())));
     }
 }

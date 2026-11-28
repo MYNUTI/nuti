@@ -8,4 +8,8 @@ import java.util.List;
 public interface ProductBarcodeRepository extends JpaRepository<ProductBarcode, Long> {
 
     List<ProductBarcode> findByProductId(Long productId);
+
+    List<ProductBarcode> findByBarcode(String barcode);
+
+    boolean existsByProductIdAndBarcode(Long productId, String barcode);
 }
